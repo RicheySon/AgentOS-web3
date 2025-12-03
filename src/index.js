@@ -45,6 +45,7 @@ const blockchainRouter = require('./routes/blockchain');
 const memoryRouter = require('./routes/memory');
 const x402Router = require('./routes/x402');
 const previewRouter = require('./routes/preview');
+const auditRouter = require('./routes/audit');
 app.use('/api/health', healthRouter);
 app.use('/api/ai', chainGPTRouter);
 app.use('/api/blockchain', blockchainRouter);
@@ -53,6 +54,7 @@ app.use('/api/payment', x402Router);
 app.use('/api/policy', x402Router);
 app.use('/api/signature', x402Router);
 app.use('/api/preview', previewRouter);
+app.use('/api/audit', auditRouter);
 
 // Root endpoint
 app.get('/', (req, res) => {
