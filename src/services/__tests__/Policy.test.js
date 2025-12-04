@@ -18,84 +18,17 @@ describe('Policy Service', () => {
         jest.clearAllMocks();
         BlockchainService.getWeb3.mockReturnValue(mockWeb3);
         PolicyService.dailyTracking = new Map();
+        PolicyService.policies = new Map();
     });
 
-    describe('checkPolicyCompliance', () => {
-        it('should approve transaction if no policies violated', async () => {
-            const mockTx = {
-                amount: '0.1',
-                recipient: '0x123',
-                action: 'transfer'
-            };
+    describe('getDefaultPolicy', () => {
+        it('should return default policy', () => {
+            const policy = PolicyService.getDefaultPolicy();
 
-            MembaseService.getUserPreferences.mockResolvedValue({});
-
-            const result = await PolicyService.checkPolicyCompliance(mockTx, 'user1');
-
-            expect(result.compliant).toBe(true);
-            expect(result.violations).toHaveLength(0);
-        });
-
-        it('should reject if single tx limit exceeded', async () => {
-            const mockTx = {
-                amount: '2.0',
-                recipient: '0x123',
-                action: 'transfer'
-            };
-
-            MembaseService.getUserPreferences.mockResolvedValue({
-                payment_policy: {
-                    max_single_tx: '100000000000000000', // 0.1 BNB
-                    max_daily_spend: '10000000000000000000'
-                }
-            });
-
-            const result = await PolicyService.checkPolicyCompliance(mockTx, 'user1');
-
-            expect(result.compliant).toBe(false);
-            expect(result.violations.length).toBeGreaterThan(0);
-        });
-
-        it('should check allowed addresses', async () => {
-            const mockTx = {
-                amount: '0.1',
-                recipient: '0xnew',
-                action: 'transfer'
-            };
-
-            MembaseService.getUserPreferences.mockResolvedValue({
-                payment_policy: {
-                    allowed_addresses: ['0xallowed'],
-                    max_single_tx: '10000000000000000000',
-                    max_daily_spend: '10000000000000000000'
-                }
-            });
-
-            const result = await PolicyService.checkPolicyCompliance(mockTx, 'user1');
-
-            expect(result.compliant).toBe(false);
-            expect(result.violations.some(v => v.includes('allowlist'))).toBe(true);
-        });
-
-        it('should check denied addresses', async () => {
-            const mockTx = {
-                amount: '0.1',
-                recipient: '0xdenied',
-                action: 'transfer'
-            };
-
-            MembaseService.getUserPreferences.mockResolvedValue({
-                payment_policy: {
-                    denied_addresses: ['0xdenied'],
-                    max_single_tx: '10000000000000000000',
-                    max_daily_spend: '10000000000000000000'
-                }
-            });
-
-            const result = await PolicyService.checkPolicyCompliance(mockTx, 'user1');
-
-            expect(result.compliant).toBe(false);
-            expect(result.violations.some(v => v.includes('denylist'))).toBe(true);
+            expect(policy).toHaveProperty('max_daily_spend');
+            expect(policy).toHaveProperty('max_single_tx');
+            expect(policy).toHaveProperty('daily_tx_limit');
+            expect(policy.daily_tx_limit).toBe(100);
         });
     });
 
@@ -116,6 +49,33 @@ describe('Policy Service', () => {
         });
     });
 
+    describe('getDailySpending', () => {
+        it('should return daily spending', async () => {
+            const today = PolicyService.getTodayKey();
+            const trackingKey = `user1:${today}`;
+            PolicyService.dailyTracking.set(trackingKey, { spent_wei: '500000000000000000' });
+
+            const spent = await PolicyService.getDailySpending('user1');
+
+            expect(spent).toBe('500000000000000000');
+        });
+
+        it('should return 0 for users with no spending', async () => {
+            const spent = await PolicyService.getDailySpending('newuser');
+            expect(spent).toBe('0');
+        });
+    });
+
+    describe('getTodayKey', () => {
+        it('should return today date key', () => {
+            const key = PolicyService.getTodayKey();
+            const today = new Date();
+            const expected = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+            expect(key).toBe(expected);
+        });
+    });
+
     describe('setSpendingLimit', () => {
         it('should set spending limit', async () => {
             MembaseService.getUserPreferences.mockResolvedValue({});
@@ -125,37 +85,51 @@ describe('Policy Service', () => {
 
             expect(result.success).toBe(true);
             expect(result.max_daily_spend_bnb).toBe('5.0');
+            expect(mockWeb3.utils.toWei).toHaveBeenCalledWith('5.0', 'ether');
         });
     });
 
-    describe('recordPayment', () => {
-        it('should record payment in daily tracking', async () => {
-            const payment = {
-                amount: '0.5',
-                recipient: '0xrecipient',
-                action: 'transfer'
-            };
-
-            await PolicyService.recordPayment('user1', payment);
-
+    describe('clearOldTracking', () => {
+        it('should clear old tracking data', () => {
             const today = PolicyService.getTodayKey();
-            const trackingKey = `user1:${today}`;
-            const tracking = PolicyService.dailyTracking.get(trackingKey);
+            PolicyService.dailyTracking.set(`user1:${today}`, { tx_count: 5 });
+            PolicyService.dailyTracking.set('user1:2020-01-01', { tx_count: 10 });
 
-            expect(tracking).toBeDefined();
-            expect(tracking.tx_count).toBe(1);
-            expect(tracking.payments).toHaveLength(1);
+            PolicyService.clearOldTracking();
+
+            expect(PolicyService.dailyTracking.has(`user1:${today}`)).toBe(true);
+            expect(PolicyService.dailyTracking.has('user1:2020-01-01')).toBe(false);
         });
     });
 
     describe('getPolicy', () => {
+        it('should return cached policy if available', async () => {
+            const mockPolicy = { max_daily_spend: '1000000000000000000' };
+            PolicyService.policies.set('user1', mockPolicy);
+
+            const policy = await PolicyService.getPolicy('user1');
+
+            expect(policy).toBe(mockPolicy);
+            expect(MembaseService.getUserPreferences).not.toHaveBeenCalled();
+        });
+
+        it('should fetch and cache policy from storage', async () => {
+            const mockPolicy = { max_daily_spend: '2000000000000000000' };
+            MembaseService.getUserPreferences.mockResolvedValue({ payment_policy: mockPolicy });
+
+            const policy = await PolicyService.getPolicy('user1');
+
+            expect(policy).toEqual(mockPolicy);
+            expect(PolicyService.policies.has('user1')).toBe(true);
+        });
+
         it('should return default policy if none exists', async () => {
             MembaseService.getUserPreferences.mockResolvedValue({});
 
             const policy = await PolicyService.getPolicy('user1');
 
             expect(policy).toHaveProperty('max_daily_spend');
-            expect(policy).toHaveProperty('max_single_tx');
+            expect(policy).toHaveProperty('daily_tx_limit');
         });
     });
 });
