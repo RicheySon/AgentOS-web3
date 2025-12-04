@@ -122,10 +122,14 @@ describe('Payment Service', () => {
         });
 
         it('should maintain separate nonces per user', () => {
-            const nonce1 = PaymentService.getNextNonce('user1');
-            const nonce2 = PaymentService.getNextNonce('user2');
+            const user1Nonce1 = PaymentService.getNextNonce('user1');
+            const user1Nonce2 = PaymentService.getNextNonce('user1');
+            const user2Nonce1 = PaymentService.getNextNonce('user2');
+            const user2Nonce2 = PaymentService.getNextNonce('user2');
 
-            expect(nonce1).not.toBe(nonce2);
+            // Each user's nonces should increment
+            expect(user1Nonce2).toBe(user1Nonce1 + 1);
+            expect(user2Nonce2).toBe(user2Nonce1 + 1);
         });
     });
 

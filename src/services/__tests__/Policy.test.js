@@ -32,6 +32,50 @@ describe('Policy Service', () => {
         });
     });
 
+    describe('storePolicy', () => {
+        it('should store policy successfully', async () => {
+            MembaseService.storeUserPreference.mockResolvedValue({ success: true });
+
+            const policy = { max_daily_spend: '5000000000000000000' };
+            const result = await PolicyService.storePolicy('user1', policy);
+
+            expect(result.success).toBe(true);
+            expect(result.policy).toEqual(policy);
+            expect(MembaseService.storeUserPreference).toHaveBeenCalledWith('user1', 'payment_policy', policy);
+        });
+    });
+
+    describe('getPolicy', () => {
+        it('should return cached policy if available', async () => {
+            const mockPolicy = { max_daily_spend: '1000000000000000000' };
+            PolicyService.policies.set('user1', mockPolicy);
+
+            const policy = await PolicyService.getPolicy('user1');
+
+            expect(policy).toBe(mockPolicy);
+            expect(MembaseService.getUserPreferences).not.toHaveBeenCalled();
+        });
+
+        it('should fetch and cache policy from storage', async () => {
+            const mockPolicy = { max_daily_spend: '2000000000000000000' };
+            MembaseService.getUserPreferences.mockResolvedValue({ payment_policy: mockPolicy });
+
+            const policy = await PolicyService.getPolicy('user1');
+
+            expect(policy).toEqual(mockPolicy);
+            expect(PolicyService.policies.has('user1')).toBe(true);
+        });
+
+        it('should return default policy if none exists', async () => {
+            MembaseService.getUserPreferences.mockResolvedValue({});
+
+            const policy = await PolicyService.getPolicy('user1');
+
+            expect(policy).toHaveProperty('max_daily_spend');
+            expect(policy).toHaveProperty('daily_tx_limit');
+        });
+    });
+
     describe('getDailyTransactionCount', () => {
         it('should return daily transaction count', async () => {
             const today = PolicyService.getTodayKey();
@@ -102,34 +146,21 @@ describe('Policy Service', () => {
         });
     });
 
-    describe('getPolicy', () => {
-        it('should return cached policy if available', async () => {
-            const mockPolicy = { max_daily_spend: '1000000000000000000' };
-            PolicyService.policies.set('user1', mockPolicy);
+    describe('recordTransaction', () => {
+        it('should record transaction in daily tracking', async () => {
+            const payment = {
+                amount: '0.5',
+                user: 'user1'
+            };
 
-            const policy = await PolicyService.getPolicy('user1');
+            await PolicyService.recordTransaction('user1', payment);
 
-            expect(policy).toBe(mockPolicy);
-            expect(MembaseService.getUserPreferences).not.toHaveBeenCalled();
-        });
+            const today = PolicyService.getTodayKey();
+            const trackingKey = `user1:${today}`;
+            const tracking = PolicyService.dailyTracking.get(trackingKey);
 
-        it('should fetch and cache policy from storage', async () => {
-            const mockPolicy = { max_daily_spend: '2000000000000000000' };
-            MembaseService.getUserPreferences.mockResolvedValue({ payment_policy: mockPolicy });
-
-            const policy = await PolicyService.getPolicy('user1');
-
-            expect(policy).toEqual(mockPolicy);
-            expect(PolicyService.policies.has('user1')).toBe(true);
-        });
-
-        it('should return default policy if none exists', async () => {
-            MembaseService.getUserPreferences.mockResolvedValue({});
-
-            const policy = await PolicyService.getPolicy('user1');
-
-            expect(policy).toHaveProperty('max_daily_spend');
-            expect(policy).toHaveProperty('daily_tx_limit');
+            expect(tracking).toBeDefined();
+            expect(tracking.tx_count).toBeGreaterThan(0);
         });
     });
 });
