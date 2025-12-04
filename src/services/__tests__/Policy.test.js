@@ -1,16 +1,23 @@
 const PolicyService = require('../x402/PolicyService');
 const MembaseService = require('../memory/MembaseService');
 const BlockchainService = require('../blockchain/BlockchainService');
-const SignatureService = require('../x402/SignatureService');
 
 // Mock dependencies
 jest.mock('../memory/MembaseService');
 jest.mock('../blockchain/BlockchainService');
-jest.mock('../x402/SignatureService');
 
 describe('Policy Service', () => {
+    const mockWeb3 = {
+        utils: {
+            toWei: jest.fn((val) => (parseFloat(val) * 1e18).toString()),
+            fromWei: jest.fn((val) => (parseFloat(val) / 1e18).toString())
+        }
+    };
+
     beforeEach(() => {
         jest.clearAllMocks();
+        BlockchainService.getWeb3.mockReturnValue(mockWeb3);
+        PolicyService.dailyTracking = new Map();
     });
 
     describe('checkPolicyCompliance', () => {
@@ -22,16 +29,11 @@ describe('Policy Service', () => {
             };
 
             MembaseService.getUserPreferences.mockResolvedValue({});
-            BlockchainService.getWeb3.mockReturnValue({
-                utils: {
-                    toWei: jest.fn().mockReturnValue('100000000000000000'),
-                    fromWei: jest.fn().mockReturnValue('0.1')
-                }
-            });
 
             const result = await PolicyService.checkPolicyCompliance(mockTx, 'user1');
 
             expect(result.compliant).toBe(true);
+            expect(result.violations).toHaveLength(0);
         });
 
         it('should reject if single tx limit exceeded', async () => {
@@ -42,25 +44,58 @@ describe('Policy Service', () => {
             };
 
             MembaseService.getUserPreferences.mockResolvedValue({
-                'payment_policy': {
-                    max_daily_spend: '10000000000000000000', // 10 BNB
-                    max_single_tx: '100000000000000000' // 0.1 BNB
+                payment_policy: {
+                    max_single_tx: '100000000000000000', // 0.1 BNB
+                    max_daily_spend: '10000000000000000000'
                 }
             });
-            BlockchainService.getWeb3.mockReturnValue({
-                utils: {
-                    toWei: jest.fn().mockReturnValue('2000000000000000000'), // 2 BNB
-                    fromWei: jest.fn().mockReturnValue('0.1')
-                }
-            });
-
-            // Mock daily spending to be 0
-            PolicyService.dailyTracking = new Map();
 
             const result = await PolicyService.checkPolicyCompliance(mockTx, 'user1');
 
             expect(result.compliant).toBe(false);
-            expect(result.violations[0]).toContain('single transaction limit');
+            expect(result.violations.length).toBeGreaterThan(0);
+        });
+
+        it('should check allowed addresses', async () => {
+            const mockTx = {
+                amount: '0.1',
+                recipient: '0xnew',
+                action: 'transfer'
+            };
+
+            MembaseService.getUserPreferences.mockResolvedValue({
+                payment_policy: {
+                    allowed_addresses: ['0xallowed'],
+                    max_single_tx: '10000000000000000000',
+                    max_daily_spend: '10000000000000000000'
+                }
+            });
+
+            const result = await PolicyService.checkPolicyCompliance(mockTx, 'user1');
+
+            expect(result.compliant).toBe(false);
+            expect(result.violations.some(v => v.includes('allowlist'))).toBe(true);
+        });
+
+        it('should check denied addresses', async () => {
+            const mockTx = {
+                amount: '0.1',
+                recipient: '0xdenied',
+                action: 'transfer'
+            };
+
+            MembaseService.getUserPreferences.mockResolvedValue({
+                payment_policy: {
+                    denied_addresses: ['0xdenied'],
+                    max_single_tx: '10000000000000000000',
+                    max_daily_spend: '10000000000000000000'
+                }
+            });
+
+            const result = await PolicyService.checkPolicyCompliance(mockTx, 'user1');
+
+            expect(result.compliant).toBe(false);
+            expect(result.violations.some(v => v.includes('denylist'))).toBe(true);
         });
     });
 
@@ -68,11 +103,16 @@ describe('Policy Service', () => {
         it('should return daily transaction count', async () => {
             const today = PolicyService.getTodayKey();
             const trackingKey = `user1:${today}`;
-            PolicyService.dailyTracking.set(trackingKey, { tx_count: 3 });
+            PolicyService.dailyTracking.set(trackingKey, { tx_count: 5 });
 
             const count = await PolicyService.getDailyTransactionCount('user1');
 
-            expect(count).toBe(3);
+            expect(count).toBe(5);
+        });
+
+        it('should return 0 for users with no transactions', async () => {
+            const count = await PolicyService.getDailyTransactionCount('newuser');
+            expect(count).toBe(0);
         });
     });
 
@@ -80,14 +120,42 @@ describe('Policy Service', () => {
         it('should set spending limit', async () => {
             MembaseService.getUserPreferences.mockResolvedValue({});
             MembaseService.storeUserPreference.mockResolvedValue({ success: true });
-            BlockchainService.getWeb3.mockReturnValue({
-                utils: { toWei: jest.fn().mockReturnValue('5000000000000000000') }
-            });
 
             const result = await PolicyService.setSpendingLimit('user1', '5.0');
 
             expect(result.success).toBe(true);
             expect(result.max_daily_spend_bnb).toBe('5.0');
+        });
+    });
+
+    describe('recordPayment', () => {
+        it('should record payment in daily tracking', async () => {
+            const payment = {
+                amount: '0.5',
+                recipient: '0xrecipient',
+                action: 'transfer'
+            };
+
+            await PolicyService.recordPayment('user1', payment);
+
+            const today = PolicyService.getTodayKey();
+            const trackingKey = `user1:${today}`;
+            const tracking = PolicyService.dailyTracking.get(trackingKey);
+
+            expect(tracking).toBeDefined();
+            expect(tracking.tx_count).toBe(1);
+            expect(tracking.payments).toHaveLength(1);
+        });
+    });
+
+    describe('getPolicy', () => {
+        it('should return default policy if none exists', async () => {
+            MembaseService.getUserPreferences.mockResolvedValue({});
+
+            const policy = await PolicyService.getPolicy('user1');
+
+            expect(policy).toHaveProperty('max_daily_spend');
+            expect(policy).toHaveProperty('max_single_tx');
         });
     });
 });

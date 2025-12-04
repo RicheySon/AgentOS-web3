@@ -1,45 +1,43 @@
 const request = require('supertest');
 const express = require('express');
 const chainGPTRouter = require('../chainGPT');
-const llmService = require('../../services/chainGPT/LLMService');
-const auditorService = require('../../services/chainGPT/AuditorService');
-const generatorService = require('../../services/chainGPT/GeneratorService');
+const chainGPTController = require('../../controllers/chainGPTController');
 
-// Mock services
-jest.mock('../../services/chainGPT/LLMService');
-jest.mock('../../services/chainGPT/AuditorService');
-jest.mock('../../services/chainGPT/GeneratorService');
+// Mock controller
+jest.mock('../../controllers/chainGPTController');
 
 const app = express();
 app.use(express.json());
-app.use('/api/chaingpt', chainGPTRouter);
+app.use('/api/ai', chainGPTRouter);
 
 describe('ChainGPT Routes', () => {
     beforeEach(() => {
         jest.clearAllMocks();
     });
 
-    describe('POST /api/chaingpt/chat', () => {
+    describe('POST /api/ai/chat', () => {
         it('should process chat request', async () => {
-            const mockResponse = { response: 'Hello', tokens_used: 10 };
-            llmService.chat.mockResolvedValue(mockResponse);
+            chainGPTController.chat = jest.fn((req, res) => {
+                res.status(200).json({ success: true, response: 'Hello' });
+            });
 
             const res = await request(app)
-                .post('/api/chaingpt/chat')
-                .send({ message: 'Hello' });
+                .post('/api/ai/chat')
+                .send({ prompt: 'Hello' });
 
             expect(res.status).toBe(200);
             expect(res.body.success).toBe(true);
         });
     });
 
-    describe('POST /api/chaingpt/audit', () => {
+    describe('POST /api/ai/audit-contract', () => {
         it('should audit contract', async () => {
-            const mockAudit = { risk_level: 'LOW', vulnerabilities: [] };
-            auditorService.auditContract.mockResolvedValue(mockAudit);
+            chainGPTController.auditContract = jest.fn((req, res) => {
+                res.status(200).json({ success: true, riskLevel: 'LOW' });
+            });
 
             const res = await request(app)
-                .post('/api/chaingpt/audit')
+                .post('/api/ai/audit-contract')
                 .send({ contractCode: 'contract Test {}' });
 
             expect(res.status).toBe(200);
@@ -47,14 +45,15 @@ describe('ChainGPT Routes', () => {
         });
     });
 
-    describe('POST /api/chaingpt/generate', () => {
-        it('should generate contract', async () => {
-            const mockContract = { contract_code: 'contract Token {}' };
-            generatorService.generateERC20.mockResolvedValue(mockContract);
+    describe('POST /api/ai/generate/erc20', () => {
+        it('should generate ERC20 contract', async () => {
+            chainGPTController.generateERC20 = jest.fn((req, res) => {
+                res.status(200).json({ success: true, contract: 'contract Token {}' });
+            });
 
             const res = await request(app)
-                .post('/api/chaingpt/generate')
-                .send({ type: 'ERC20', params: {} });
+                .post('/api/ai/generate/erc20')
+                .send({ name: 'TestToken' });
 
             expect(res.status).toBe(200);
             expect(res.body.success).toBe(true);

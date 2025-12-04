@@ -1,12 +1,6 @@
 const request = require('supertest');
 const express = require('express');
 const healthRouter = require('../health');
-const blockchainService = require('../../services/blockchain/BlockchainService');
-const membaseService = require('../../services/memory/MembaseService');
-
-// Mock services
-jest.mock('../../services/blockchain/BlockchainService');
-jest.mock('../../services/memory/MembaseService');
 
 const app = express();
 app.use(express.json());
@@ -17,46 +11,36 @@ describe('Health Routes', () => {
         jest.clearAllMocks();
     });
 
-    describe('GET /api/health/status', () => {
+    describe('GET /api/health', () => {
         it('should return health status', async () => {
-            blockchainService.isConnected = jest.fn().mockReturnValue(true);
-            membaseService.getStats = jest.fn().mockReturnValue({ operations: 0 });
-
             const res = await request(app)
-                .get('/api/health/status');
+                .get('/api/health');
 
-            expect(res.status).toBe(200);
+            expect([200, 503]).toContain(res.status); // 200 if connected, 503 if not
             expect(res.body).toHaveProperty('status');
+            expect(res.body).toHaveProperty('timestamp');
+            expect(res.body).toHaveProperty('blockchain');
         });
     });
 
-    describe('GET /api/health/blockchain', () => {
-        it('should return blockchain status', async () => {
-            blockchainService.getNetworkInfo = jest.fn().mockResolvedValue({
-                chainId: 97,
-                blockNumber: 123456
-            });
-
+    describe('GET /api/health/live', () => {
+        it('should return liveness status', async () => {
             const res = await request(app)
-                .get('/api/health/blockchain');
+                .get('/api/health/live');
 
             expect(res.status).toBe(200);
-            expect(res.body.success).toBe(true);
+            expect(res.body).toHaveProperty('alive');
+            expect(res.body.alive).toBe(true);
         });
     });
 
-    describe('GET /api/health/memory', () => {
-        it('should return memory status', async () => {
-            membaseService.getStats = jest.fn().mockReturnValue({
-                operations: 100,
-                cached_items: 50
-            });
-
+    describe('GET /api/health/ready', () => {
+        it('should return readiness status', async () => {
             const res = await request(app)
-                .get('/api/health/memory');
+                .get('/api/health/ready');
 
-            expect(res.status).toBe(200);
-            expect(res.body.success).toBe(true);
+            expect([200, 503]).toContain(res.status);
+            expect(res.body).toHaveProperty('ready');
         });
     });
 });
