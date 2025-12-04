@@ -2,25 +2,40 @@ const PaymentService = require('../x402/PaymentService');
 const PolicyService = require('../x402/PolicyService');
 const SignatureService = require('../x402/SignatureService');
 const BlockchainService = require('../blockchain/BlockchainService');
+const MembaseService = require('../memory/MembaseService');
 
 jest.mock('../x402/PolicyService');
 jest.mock('../x402/SignatureService');
 jest.mock('../blockchain/BlockchainService');
+jest.mock('../memory/MembaseService');
+jest.mock('../blockchain/TransferService', () => ({
+    executeTransfer: jest.fn()
+}), { virtual: true });
+jest.mock('../blockchain/SwapService', () => ({
+    executeSwap: jest.fn()
+}), { virtual: true });
+jest.mock('../blockchain/ContractCallService', () => ({
+    writeContractMethod: jest.fn()
+}), { virtual: true });
 
 describe('Payment Service', () => {
-    const mockWeb3 = {
-        utils: {
-            toWei: jest.fn((val) => (parseFloat(val) * 1e18).toString()),
-            fromWei: jest.fn((val) => (parseFloat(val) / 1e18).toString())
-        }
-    };
+    let mockWeb3;
 
     beforeEach(() => {
         jest.clearAllMocks();
+
+        mockWeb3 = {
+            utils: {
+                toWei: jest.fn((val) => (parseFloat(val) * 1e18).toString()),
+                fromWei: jest.fn((val) => (parseFloat(val) / 1e18).toString())
+            }
+        };
+
         PaymentService.activeSessions = new Map();
         PaymentService.paymentNonces = new Map();
         BlockchainService.getWeb3.mockReturnValue(mockWeb3);
         BlockchainService.validateAddress.mockReturnValue(true);
+        BlockchainService.getAccount.mockReturnValue({ address: '0xagent' });
     });
 
     describe('initializePaymentSession', () => {
@@ -168,6 +183,125 @@ describe('Payment Service', () => {
         it('should return null for non-existent session', () => {
             const result = PaymentService.getSession('nonexistent');
             expect(result).toBeNull();
+        });
+    });
+
+    describe('verifyPayment', () => {
+        it('should verify valid payment signature and policy', async () => {
+            SignatureService.verifySignature.mockResolvedValue(true);
+            PolicyService.checkPolicyCompliance.mockResolvedValue({ compliant: true });
+
+            const payment = {
+                user: 'user1',
+                amount: '1.0',
+                expires: Math.floor(Date.now() / 1000) + 3600
+            };
+
+            const result = await PaymentService.verifyPayment('0xsig', payment);
+
+            expect(result.verified).toBe(true);
+            expect(result.signature_valid).toBe(true);
+            expect(result.policy_compliant).toBe(true);
+        });
+
+        it('should reject invalid signature', async () => {
+            SignatureService.verifySignature.mockResolvedValue(false);
+
+            const payment = {
+                user: 'user1',
+                amount: '1.0',
+                expires: Math.floor(Date.now() / 1000) + 3600
+            };
+
+            const result = await PaymentService.verifyPayment('0xsig', payment);
+
+            expect(result.verified).toBe(false);
+            expect(result.error).toContain('Signature verification failed');
+        });
+
+        it('should reject expired payment', async () => {
+            SignatureService.verifySignature.mockResolvedValue(true);
+
+            const payment = {
+                user: 'user1',
+                amount: '1.0',
+                expires: Math.floor(Date.now() / 1000) - 3600 // Expired
+            };
+
+            const result = await PaymentService.verifyPayment('0xsig', payment);
+
+            expect(result.verified).toBe(false);
+            expect(result.error).toContain('Payment approval expired');
+        });
+    });
+
+    describe('executePayment', () => {
+        it('should execute transfer payment', async () => {
+            SignatureService.verifySignature.mockResolvedValue(true);
+            PolicyService.checkPolicyCompliance.mockResolvedValue({ compliant: true });
+
+            const TransferService = require('../blockchain/TransferService');
+            TransferService.executeTransfer.mockResolvedValue({
+                tx_hash: '0xhash',
+                status: 'success',
+                gas_used: 21000
+            });
+
+            MembaseService.store.mockResolvedValue(true);
+            PolicyService.recordPayment.mockResolvedValue(true);
+
+            const payment = {
+                user: 'user1',
+                amount: '1.0',
+                recipient: '0xrecipient',
+                action: 'transfer',
+                expires: Math.floor(Date.now() / 1000) + 3600
+            };
+
+            const result = await PaymentService.executePayment('0xsig', payment);
+
+            expect(result.success).toBe(true);
+            expect(result.executed).toBe(true);
+            expect(result.tx_hash).toBe('0xhash');
+            expect(TransferService.executeTransfer).toHaveBeenCalled();
+            expect(MembaseService.store).toHaveBeenCalled();
+        });
+    });
+
+    describe('getPaymentHistory', () => {
+        it('should retrieve payment history', async () => {
+            const mockHistory = [
+                { timestamp: '2023-01-02T00:00:00Z', amount: '2.0' },
+                { timestamp: '2023-01-01T00:00:00Z', amount: '1.0' }
+            ];
+            MembaseService.queryMemory.mockResolvedValue(mockHistory);
+
+            const history = await PaymentService.getPaymentHistory('user1');
+
+            expect(history).toHaveLength(2);
+            expect(history[0].amount).toBe('2.0'); // Sorted by date desc
+        });
+    });
+
+    describe('assessRisk', () => {
+        it('should assess high risk for high amount', () => {
+            const payment = { amount: '10.0', recipient: '0xrecipient' }; // High amount
+            const compliance = { compliant: true };
+
+            const risk = PaymentService.assessRisk(payment, compliance);
+
+            expect(risk.score).toBeGreaterThan(0);
+            expect(risk.warnings).toContain('High transaction amount');
+        });
+
+        it('should assess high risk for policy violation', () => {
+            const payment = { amount: '0.1', recipient: '0xrecipient' };
+            const compliance = { compliant: false };
+
+            const risk = PaymentService.assessRisk(payment, compliance);
+
+            expect(risk.score).toBeGreaterThan(0);
+            expect(risk.warnings).toContain('Policy violations detected');
         });
     });
 });

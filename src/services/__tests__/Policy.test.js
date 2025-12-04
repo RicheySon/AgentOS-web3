@@ -191,7 +191,7 @@ describe('Policy Service', () => {
             const result = await PolicyService.checkPolicyCompliance(payment, 'user1');
 
             expect(result.compliant).toBe(false);
-            expect(result.violations).toContain(expect.stringContaining('exceeds single transaction limit'));
+            expect(result.violations).toEqual(expect.arrayContaining([expect.stringContaining('exceeds single transaction limit')]));
         });
 
         it('should reject payment exceeding daily limit', async () => {
@@ -208,16 +208,17 @@ describe('Policy Service', () => {
             const result = await PolicyService.checkPolicyCompliance(payment, 'user1');
 
             expect(result.compliant).toBe(false);
-            expect(result.violations).toContain(expect.stringContaining('exceeds daily spending limit'));
+            const hasDailyLimitViolation = result.violations.some(v => v.includes('daily spending limit'));
+            expect(hasDailyLimitViolation).toBe(true);
         });
 
         it('should warn when approaching daily limit', async () => {
             // Mock daily spending
             const today = PolicyService.getTodayKey();
-            PolicyService.dailyTracking.set(`user1:${today}`, { spent_wei: '700000000000000000' }); // 0.7 BNB
+            PolicyService.dailyTracking.set(`user1:${today}`, { spent_wei: '790000000000000000' }); // 0.79 BNB
 
             const payment = {
-                amount: '0.15', // Total 0.85 > 0.8 (80%)
+                amount: '0.02', // Total 0.81 > 0.8 (80%). 0.02 < 0.1 (single tx limit)
                 recipient: '0xrecipient',
                 action: 'transfer'
             };
@@ -231,7 +232,7 @@ describe('Policy Service', () => {
 
         it('should reject payment exceeding daily tx count', async () => {
             const today = PolicyService.getTodayKey();
-            PolicyService.dailyTracking.set(`user1:${today}`, { tx_count: 100 }); // Limit is 100
+            PolicyService.dailyTracking.set(`user1:${today}`, { tx_count: 100, spent_wei: '0' }); // Limit is 100
 
             const payment = {
                 amount: '0.01',
@@ -242,7 +243,7 @@ describe('Policy Service', () => {
             const result = await PolicyService.checkPolicyCompliance(payment, 'user1');
 
             expect(result.compliant).toBe(false);
-            expect(result.violations).toContain(expect.stringContaining('Daily transaction limit'));
+            expect(result.violations).toEqual(expect.arrayContaining([expect.stringContaining('Daily transaction limit')]));
         });
     });
 

@@ -2,6 +2,11 @@
 
 A Node.js backend service integrating ChainGPT, Unibase, X402, and blockchain services.
 
+## Quick Links
+
+- 📚 **[Features Documentation](FEATURES.md)** - Comprehensive guide to all features and capabilities
+- 🧪 **[Test Coverage Report](FEATURES.md#coverage-metrics)** - Current testing status and metrics
+
 ## Project Structure
 
 ```
@@ -43,7 +48,12 @@ npm run dev
 - `npm run dev` - Start development server with nodemon
 - `npm test` - Run tests
 - `npm run test:watch` - Run tests in watch mode
+- `npm run test:coverage` - Generate coverage report
 
 ## Environment Variables
 
 See `.env` file for required configuration.
+
+## Documentation
+
+For detailed information about features, API endpoints, and usage examples, see [FEATURES.md](FEATURES.md).
