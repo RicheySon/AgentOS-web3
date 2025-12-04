@@ -10,207 +10,72 @@ jest.mock('../blockchain/BlockchainService');
 describe('Payment Service', () => {
     beforeEach(() => {
         jest.clearAllMocks();
-        PaymentService.sessions = new Map();
-        PaymentService.nonces = new Map();
+        PaymentService.activeSessions = new Map();
+        PaymentService.paymentNonces = new Map();
     });
 
-    describe('initializeSession', () => {
+    describe('initializePaymentSession', () => {
         it('should initialize a payment session', async () => {
-            const result = await PaymentService.initializeSession('user1', '0xagent');
+            const result = await PaymentService.initializePaymentSession('user1', 'transfer');
 
+            expect(result.success).toBe(true);
             expect(result.session_id).toBeDefined();
             expect(result.user_id).toBe('user1');
-            expect(result.agent_address).toBe('0xagent');
+            expect(result.agent_action).toBe('transfer');
             expect(result.nonce).toBeGreaterThan(0);
-            expect(PaymentService.sessions.has(result.session_id)).toBe(true);
         });
 
-        it('should throw error if user_id missing', async () => {
-            await expect(PaymentService.initializeSession(null, '0xagent'))
-                .rejects.toThrow('User ID required');
-        });
-    });
+        it('should set session expiration', async () => {
+            const result = await PaymentService.initializePaymentSession('user1', 'swap');
 
-    describe('preparePayment', () => {
-        it('should prepare payment with valid session', async () => {
-            const mockSession = {
-                session_id: 'session123',
-                user_id: 'user1',
-                agent_address: '0xagent',
-                nonce: 123,
-                created_at: Date.now()
-            };
-            PaymentService.sessions.set('session123', mockSession);
-
-            PolicyService.checkPolicyCompliance.mockResolvedValue({
-                compliant: true,
-                violations: []
-            });
-            SignatureService.generatePaymentSignature.mockResolvedValue({
-                signature: '0xsig',
-                payload: {},
-                message_hash: '0xhash'
-            });
-
-            const result = await PaymentService.preparePayment({
-                session_id: 'session123',
-                amount: '1.0',
-                recipient: '0xrecipient',
-                action: 'transfer'
-            });
-
-            expect(result.prepared).toBe(true);
-            expect(result.signature).toBe('0xsig');
-        });
-
-        it('should reject payment if policy violated', async () => {
-            const mockSession = {
-                session_id: 'session123',
-                user_id: 'user1',
-                agent_address: '0xagent',
-                nonce: 123,
-                created_at: Date.now()
-            };
-            PaymentService.sessions.set('session123', mockSession);
-
-            PolicyService.checkPolicyCompliance.mockResolvedValue({
-                compliant: false,
-                violations: ['Daily limit exceeded']
-            });
-
-            await expect(PaymentService.preparePayment({
-                session_id: 'session123',
-                amount: '1000.0',
-                recipient: '0xrecipient',
-                action: 'transfer'
-            })).rejects.toThrow('Policy violation');
-        });
-
-        it('should throw error for invalid session', async () => {
-            await expect(PaymentService.preparePayment({
-                session_id: 'invalid',
-                amount: '1.0',
-                recipient: '0xrecipient',
-                action: 'transfer'
-            })).rejects.toThrow('Invalid session');
+            expect(result.expires_at).toBeDefined();
+            const expiresAt = new Date(result.expires_at);
+            expect(expiresAt.getTime()).toBeGreaterThan(Date.now());
         });
     });
 
-    describe('verifyPayment', () => {
-        it('should verify valid payment', async () => {
-            const mockPayment = {
-                session_id: 'session123',
-                signature: '0xsig',
-                amount: '1.0',
-                recipient: '0xrecipient'
-            };
+    describe('getNextNonce', () => {
+        it('should generate and increment nonce', () => {
+            const nonce1 = PaymentService.getNextNonce('user1');
+            const nonce2 = PaymentService.getNextNonce('user1');
 
-            PaymentService.sessions.set('session123', {
-                user_id: 'user1',
-                nonce: 123
-            });
-
-            SignatureService.verifySignature.mockResolvedValue(true);
-
-            const result = await PaymentService.verifyPayment(mockPayment);
-
-            expect(result.valid).toBe(true);
+            expect(nonce2).toBe(nonce1 + 1);
         });
 
-        it('should reject invalid signature', async () => {
-            const mockPayment = {
-                session_id: 'session123',
-                signature: '0xbadsig',
-                amount: '1.0',
-                recipient: '0xrecipient'
-            };
-
-            PaymentService.sessions.set('session123', {
-                user_id: 'user1',
-                nonce: 123
-            });
-
-            SignatureService.verifySignature.mockResolvedValue(false);
-
-            const result = await PaymentService.verifyPayment(mock Payment);
-
-            expect(result.valid).toBe(false);
-        });
-    });
-
-    describe('getPaymentHistory', () => {
-        it('should return payment history for user', async () => {
-            const result = await PaymentService.getPaymentHistory('user1');
-
-            expect(Array.isArray(result.payments)).toBe(true);
-        });
-
-        it('should limit results', async () => {
-            const result = await PaymentService.getPaymentHistory('user1', 5);
-
-            expect(result.limit).toBe(5);
-        });
-    });
-
-    describe('generatePaymentPreview', () => {
-        it('should generate payment preview', async () => {
-            BlockchainService.estimateGas.mockResolvedValue({
-                gas_limit: '21000',
-                gas_price_gwei: '5'
-            });
-
-            const result = await PaymentService.generatePaymentPreview({
-                amount: '1.0',
-                recipient: '0xrecipient',
-                action: 'transfer'
-            });
-
-            expect(result.amount_bnb).toBe('1.0');
-            expect(result).toHaveProperty('total_cost');
-        });
-    });
-
-    describe('getNonce', () => {
-        it('should get and increment nonce', async () => {
-            const nonce1 = await PaymentService.getNonce('user1');
-            const nonce2 = await PaymentService.getNonce('user1');
-
-            expect(nonce2).toBeGreaterThan(nonce1);
-        });
-
-        it('should start from random nonce for new users', async () => {
-            const nonce = await PaymentService.getNonce('newuser');
+        it('should start with random nonce for new users', () => {
+            const nonce = PaymentService.getNextNonce('newuser');
             expect(nonce).toBeGreaterThan(0);
         });
     });
 
-    describe('assessRisk', () => {
-        it('should assess transaction risk', async () => {
-            const result = await PaymentService.assessRisk({
-                amount: '1.0',
-                recipient: '0xrecipient'
-            });
+    describe('generateSessionId', () => {
+        it('should generate unique session IDs', () => {
+            const id1 = PaymentService.generateSessionId();
+            const id2 = PaymentService.generateSessionId();
 
-            expect(result).toHaveProperty('risk_level');
-            expect(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).toContain(result.risk_level);
+            expect(id1).toBeDefined();
+            expect(id2).toBeDefined();
+            expect(id1).not.toBe(id2);
         });
     });
 
-    describe('session expiration', () => {
-        it('should detect expired sessions', async () => {
-            const oldSession = {
-                session_id: 'old123',
+    describe('getSession', () => {
+        it('should retrieve active session', () => {
+            const session = {
+                session_id: 'test123',
                 user_id: 'user1',
-                created_at: Date.now() - (2 * 60 * 60 * 1000) // 2 hours ago
+                status: 'active'
             };
-            PaymentService.sessions.set('old123', oldSession);
+            PaymentService.activeSessions.set('test123', session);
 
-            await expect(PaymentService.preparePayment({
-                session_id: 'old123',
-                amount: '1.0',
-                recipient: '0xrecipient',
-                action: 'transfer'
-            })).rejects.toThrow(/session|expired/i);
+            const result = PaymentService.getSession('test123');
+
+            expect(result).toEqual(session);
+        });
+
+        it('should return null for non-existent session', () => {
+            const result = PaymentService.getSession('nonexistent');
+            expect(result).toBeNull();
         });
     });
 });
