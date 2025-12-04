@@ -47,7 +47,29 @@ class MembaseService {
         }
     }
 
-    // ... (skipping getConversationHistory)
+    /**
+     * Get conversation history
+     * @param {string} agentId - Agent identifier
+     * @param {number} limit - Number of messages to retrieve
+     * @returns {Promise<Array>} Conversation history
+     */
+    async getConversationHistory(agentId, limit = 50) {
+        try {
+            const filter = { agent_id: agentId };
+            const result = await this.query('conversations', filter, limit);
+
+            // Sort by timestamp descending
+            const sorted = result.sort((a, b) =>
+                new Date(b.timestamp) - new Date(a.timestamp)
+            );
+
+            logger.info('Retrieved conversation history', { agentId, count: sorted.length });
+            return sorted.slice(0, limit);
+        } catch (error) {
+            logger.error('Get conversation history error:', error.message);
+            return this.fallbackQuery('conversations', agentId, limit);
+        }
+    }
 
     async storeUserPreference(userId, key, value) {
         const data = {
@@ -68,7 +90,29 @@ class MembaseService {
         }
     }
 
-    // ... (skipping getUserPreferences)
+    /**
+     * Get user preferences
+     * @param {string} userId - User identifier
+     * @returns {Promise<Object>} User preferences
+     */
+    async getUserPreferences(userId) {
+        try {
+            const filter = { user_id: userId };
+            const results = await this.query('preferences', filter);
+
+            // Convert array to object
+            const preferences = {};
+            results.forEach(pref => {
+                preferences[pref.key] = pref.value;
+            });
+
+            logger.info('Retrieved user preferences', { userId, count: Object.keys(preferences).length });
+            return preferences;
+        } catch (error) {
+            logger.error('Get user preferences error:', error.message);
+            return this.fallbackQuery('preferences', userId);
+        }
+    }
 
     async storeTransaction(txHash, txDetails, timestamp = new Date().toISOString()) {
         const data = {
@@ -96,7 +140,29 @@ class MembaseService {
         }
     }
 
-    // ... (skipping getTransactionLog)
+    /**
+     * Get transaction log
+     * @param {string} agentId - Agent identifier
+     * @param {number} limit - Number of transactions to retrieve
+     * @returns {Promise<Array>} Transaction log
+     */
+    async getTransactionLog(agentId, limit = 100) {
+        try {
+            const filter = { agent_id: agentId };
+            const result = await this.query('transactions', filter, limit);
+
+            // Sort by timestamp descending
+            const sorted = result.sort((a, b) =>
+                new Date(b.timestamp) - new Date(a.timestamp)
+            );
+
+            logger.info('Retrieved transaction log', { agentId, count: sorted.length });
+            return sorted.slice(0, limit);
+        } catch (error) {
+            logger.error('Get transaction log error:', error.message);
+            return this.fallbackQuery('transactions', agentId, limit);
+        }
+    }
 
     async storeContractTemplate(templateName, contractCode, abi) {
         const data = {
