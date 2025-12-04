@@ -23,30 +23,30 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">31.25% </span>
+                <span class="strong">36.8% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>45/144</span>
+                <span class='fraction'>53/144</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">20.83% </span>
+                <span class="strong">25% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>10/48</span>
+                <span class='fraction'>12/48</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">52.94% </span>
+                <span class="strong">58.82% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>9/17</span>
+                <span class='fraction'>10/17</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">31.69% </span>
+                <span class="strong">37.32% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>45/142</span>
+                <span class='fraction'>53/142</span>
             </div>
         
             
@@ -755,33 +755,33 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -844,8 +844,8 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">9x</span>
-<span class="cline-any cline-yes">9x</span>
+<span class="cline-any cline-yes">11x</span>
+<span class="cline-any cline-yes">11x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -1176,21 +1176,21 @@ class PolicyService {
      * @param {Object} payment - Payment details
      * @returns {Promise&lt;void&gt;}
      */
-<span class="fstat-no" title="function not covered" >    as</span>ync recordPayment(userId, payment) {
-<span class="cstat-no" title="statement not covered" >        try {</span>
-            const today = <span class="cstat-no" title="statement not covered" >this.getTodayKey();</span>
-            const trackingKey = <span class="cstat-no" title="statement not covered" >`${userId}:${today}`;</span>
+    async recordPayment(userId, payment) {
+        try {
+            const today = this.getTodayKey();
+            const trackingKey = `${userId}:${today}`;
 &nbsp;
-            let tracking = <span class="cstat-no" title="statement not covered" >this.dailyTracking.get(trackingKey) || {</span>
+            let tracking = this.dailyTracking.get(trackingKey) || {
                 spent_wei: '0',
                 tx_count: 0,
                 payments: []
             };
 &nbsp;
-            const web3 = <span class="cstat-no" title="statement not covered" >blockchainService.getWeb3();</span>
-            const amountWei = <span class="cstat-no" title="statement not covered" >web3.utils.toWei(payment.amount, 'ether');</span>
+            const web3 = blockchainService.getWeb3();
+            const amountWei = web3.utils.toWei(payment.amount, 'ether');
 &nbsp;
-<span class="cstat-no" title="statement not covered" >            tracking.spent_wei = (BigInt(tracking.spent_wei) + BigInt(amountWei)).toString();</span>
+            tracking.spent_wei = (BigInt(tracking.spent_wei) + BigInt(amountWei)).toString();
 <span class="cstat-no" title="statement not covered" >            tracking.tx_count += 1;</span>
 <span class="cstat-no" title="statement not covered" >            tracking.payments.push({</span>
                 amount: payment.amount,
@@ -1203,7 +1203,7 @@ class PolicyService {
 &nbsp;
 <span class="cstat-no" title="statement not covered" >            logger.info('Payment recorded', { userId, txCount: tracking.tx_count });</span>
         } catch (error) {
-<span class="cstat-no" title="statement not covered" >            logger.error('Record payment error:', error.message);</span>
+            logger.error('Record payment error:', error.message);
         }
     }
 &nbsp;
@@ -1336,7 +1336,7 @@ module.exports = new PolicyService();
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2025-12-04T10:25:25.713Z
+                at 2025-12-04T10:37:04.987Z
             </div>
         <script src="../../prettify.js"></script>
         <script>

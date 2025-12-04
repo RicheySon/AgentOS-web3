@@ -153,7 +153,7 @@ describe('Policy Service', () => {
                 user: 'user1'
             };
 
-            await PolicyService.recordTransaction('user1', payment);
+            await PolicyService.recordPayment('user1', payment);
 
             const today = PolicyService.getTodayKey();
             const trackingKey = `user1:${today}`;
