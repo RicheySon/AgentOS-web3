@@ -1,11 +1,26 @@
-const axios = require('axios');
+const { BufferedMemory, MultiMemory, Message, Storage, membaseChain, membaseId } = require('membase');
 const logger = require('../../utils/logger');
 
 class MembaseService {
     constructor() {
-        this.apiUrl = process.env.UNIBASE_API_URL || 'https://api.unibase.io';
-        this.apiKey = process.env.UNIBASE_API_KEY;
-        this.projectId = process.env.UNIBASE_PROJECT_ID || 'agentos-web3';
+        // Membase SDK configuration
+        this.membaseId = process.env.MEMBASE_ID || 'agentos-web3-agent';
+        this.account = process.env.MEMBASE_ACCOUNT;
+        this.hubUrl = process.env.MEMBASE_HUB || 'https://testnet.hub.membase.io';
+
+        // Initialize storage hub
+        try {
+            this.storage = new Storage(this.hubUrl);
+            this.isConnected = true;
+            logger.info('Membase storage hub connected', { hub: this.hubUrl });
+        } catch (error) {
+            logger.warn('Membase storage hub connection failed, using fallback', { error: error.message });
+            this.storage = null;
+            this.isConnected = false;
+        }
+
+        // Memory instances cache
+        this.memories = new Map();
 
         // In-memory fallback storage
         this.fallbackStorage = {
@@ -15,8 +30,41 @@ class MembaseService {
             contracts: new Map()
         };
 
-        this.usesFallback = false;
+        this.usesFallback = !this.isConnected;
         this.operationQueue = [];
+
+        // Check blockchain connection
+        if (membaseChain) {
+            logger.info('Membase chain connected', {
+                wallet: membaseChain.wallet Address,
+                rpc: membaseChain.currentRpc
+            });
+        } else {
+            logger.warn('Membase chain not initialized - blockchain features disabled');
+        }
+    }
+
+    /**
+     * Get or create BufferedMemory instance for agent
+     * @param {string} agentId - Agent identifier
+     * @returns {BufferedMemory} Memory instance
+     */
+    getMemory(agentId) {
+        if (!this.memories.has(agentId)) {
+            try {
+                const memory = new BufferedMemory(
+                    agentId,
+                    this.account || 'fallback-owner',
+                    this.isConnected
+                );
+                this.memories.set(agentId, memory);
+                logger.debug('Created new memory instance', { agentId });
+            } catch (error) {
+                logger.error('Failed to create memory instance', { agentId, error: error.message });
+                return null;
+            }
+        }
+        return this.memories.get(agentId);
     }
 
     /**
@@ -28,22 +76,59 @@ class MembaseService {
      * @returns {Promise<Object>} Storage result
      */
     async storeConversation(agentId, userMessage, aiResponse, timestamp = new Date().toISOString()) {
-        const data = {
-            agent_id: agentId,
-            user_message: userMessage,
-            ai_response: aiResponse,
-            timestamp,
-            created_at: new Date().toISOString()
-        };
-
         try {
-            const result = await this.store('conversations', data);
+            if (this.isConnected && this.storage) {
+                // Create Message instances
+                const userMsg = new Message(agentId, userMessage, 'user');
+                const aiMsg = new Message(agentId, aiResponse, 'assistant');
 
-            logger.info('Conversation stored', { agentId, timestamp });
-            return result;
+                // Get or create memory instance
+                const memory = this.getMemory(agentId);
+                if (memory) {
+                    memory.add(userMsg);
+                    memory.add(aiMsg);
+
+                    // Upload to hub
+                    const data = {
+                        agent_id: agentId,
+                        messages: [
+                            { role: 'user', content: userMessage, timestamp },
+                            { role: 'assistant', content: aiResponse, timestamp }
+                        ],
+                        timestamp
+                    };
+
+                    await this.storage.uploadHub(
+                        this.account,
+                        `conversation_${agentId}_${Date.now()}`,
+                        JSON.stringify(data),
+                        null,
+                        false  // Queue for async upload
+                    );
+
+                    logger.info('Conversation stored to hub', { agentId, timestamp });
+                    return { success: true, stored: true, agent_id: agentId };
+                }
+            }
+
+            // Fallback to in-memory storage
+            return this.fallbackStore('conversations', agentId, {
+                agent_id: agentId,
+                user_message: userMessage,
+                ai_response: aiResponse,
+                timestamp,
+                created_at: new Date().toISOString()
+            });
+
         } catch (error) {
             logger.error('Store conversation error:', error.message);
-            return this.fallbackStore('conversations', agentId, data);
+            return this.fallbackStore('conversations', agentId, {
+                agent_id: agentId,
+                user_message: userMessage,
+                ai_response: aiResponse,
+                timestamp,
+                created_at: new Date().toISOString()
+            });
         }
     }
 
@@ -55,38 +140,78 @@ class MembaseService {
      */
     async getConversationHistory(agentId, limit = 50) {
         try {
-            const filter = { agent_id: agentId };
-            const result = await this.query('conversations', filter, limit);
+            if (this.isConnected && this.storage) {
+                // Try to get conversation from hub
+                const conversation = await this.storage.getConversation(this.account, agentId);
 
-            // Sort by timestamp descending
-            const sorted = result.sort((a, b) =>
-                new Date(b.timestamp) - new Date(a.timestamp)
-            );
+                if (conversation && conversation.length > 0) {
+                    logger.info('Retrieved conversation history from hub', { agentId, count: conversation.length });
+                    return conversation.slice(-limit);  // Return last N messages
+                }
 
-            logger.info('Retrieved conversation history', { agentId, count: sorted.length });
-            return sorted.slice(0, limit);
+                // Try to get from memory instance
+                const memory = this.getMemory(agentId);
+                if (memory && memory.size() > 0) {
+                    const messages = memory.get(limit);
+                    logger.info('Retrieved conversation from memory instance', { agentId, count: messages.length });
+                    return messages;
+                }
+            }
+
+            // Fallback to in-memory storage
+            return this.fallbackQuery('conversations', agentId, limit);
+
         } catch (error) {
             logger.error('Get conversation history error:', error.message);
             return this.fallbackQuery('conversations', agentId, limit);
         }
     }
 
+    /**
+     * Store user preference
+     * @param {string} userId - User identifier
+     * @param {string} key - Preference key
+     * @param {any} value - Preference value
+     * @returns {Promise<Object>} Storage result
+     */
     async storeUserPreference(userId, key, value) {
-        const data = {
-            user_id: userId,
-            key,
-            value,
-            updated_at: new Date().toISOString()
-        };
-
         try {
-            const result = await this.store('preferences', data);
+            if (this.isConnected && this.storage) {
+                const data = {
+                    user_id: userId,
+                    key,
+                    value,
+                    updated_at: new Date().toISOString()
+                };
 
-            logger.info('User preference stored', { userId, key });
-            return result;
+                await this.storage.uploadHub(
+                    this.account,
+                    `preference_${userId}_${key}`,
+                    JSON.stringify(data),
+                    null,
+                    false
+                );
+
+                logger.info('User preference stored', { userId, key });
+                return { success: true, stored: true, user_id: userId, key };
+            }
+
+            // Fallback
+            return this.fallbackStore('preferences', `${userId}:${key}`, {
+                user_id: userId,
+                key,
+                value,
+                updated_at: new Date().toISOString()
+            });
+
         } catch (error) {
             logger.error('Store user preference error:', error.message);
-            return this.fallbackStore('preferences', `${userId}:${key}`, data);
+            return this.fallbackStore('preferences', `${userId}:${key}`, {
+                user_id: userId,
+                key,
+                value,
+                updated_at: new Date().toISOString()
+            });
         }
     }
 
@@ -97,46 +222,79 @@ class MembaseService {
      */
     async getUserPreferences(userId) {
         try {
-            const filter = { user_id: userId };
-            const results = await this.query('preferences', filter);
+            if (this.isConnected && this.storage) {
+                // List all preference files for user
+                const conversations = await this.storage.listConversations(this.account);
+                const preferenceFiles = conversations.filter(conv =>
+                    conv.startsWith(`preference_${userId}_`)
+                );
 
-            // Convert array to object
-            const preferences = {};
-            results.forEach(pref => {
-                preferences[pref.key] = pref.value;
-            });
+                const preferences = {};
+                for (const file of preferenceFiles) {
+                    try {
+                        const data = await this.storage.downloadHub(this.account, file);
+                        if (data) {
+                            const parsed = JSON.parse(
+                                data instanceof ArrayBuffer ? new TextDecoder().decode(data) : data.toString()
+                            );
+                            preferences[parsed.key] = parsed.value;
+                        }
+                    } catch (err) {
+                        logger.warn('Failed to parse preference file', { file, error: err.message });
+                    }
+                }
 
-            logger.info('Retrieved user preferences', { userId, count: Object.keys(preferences).length });
-            return preferences;
+                logger.info('Retrieved user preferences', { userId, count: Object.keys(preferences).length });
+                return preferences;
+            }
+
+            // Fallback
+            const fallbackPrefs = {};
+            for (const [key, value] of this.fallbackStorage.preferences.entries()) {
+                if (key.startsWith(`${userId}:`)) {
+                    const prefKey = key.split(':')[1];
+                    fallbackPrefs[prefKey] = value.value;
+                }
+            }
+            return fallbackPrefs;
+
         } catch (error) {
             logger.error('Get user preferences error:', error.message);
-            return this.fallbackQuery('preferences', userId);
+            return {};
         }
     }
 
-    async storeTransaction(txHash, txDetails, timestamp = new Date().toISOString()) {
+    /**
+     * Store transaction log
+     * @param {Object} transaction - Transaction data
+     * @returns {Promise<Object>} Storage result
+     */
+    async storeTransaction(transaction) {
         const data = {
-            tx_hash: txHash,
-            agent_id: txDetails.agent_id || 'unknown',
-            from: txDetails.from,
-            to: txDetails.to,
-            value: txDetails.value,
-            status: txDetails.status,
-            gas_used: txDetails.gas_used,
-            block_number: txDetails.block_number,
-            timestamp,
-            details: txDetails,
-            created_at: new Date().toISOString()
+            ...transaction,
+            stored_at: new Date().toISOString()
         };
 
         try {
-            const result = await this.store('transactions', data);
+            if (this.isConnected && this.storage) {
+                await this.storage.uploadHub(
+                    this.account,
+                    `transaction_${transaction.tx_hash || Date.now()}`,
+                    JSON.stringify(data),
+                    null,
+                    false
+                );
 
-            logger.info('Transaction stored', { txHash, timestamp });
-            return result;
+                logger.info('Transaction stored', { tx_hash: transaction.tx_hash });
+                return { success: true, stored: true, tx_hash: transaction.tx_hash };
+            }
+
+            // Fallback
+            return this.fallbackStore('transactions', transaction.tx_hash || `tx_${Date.now()}`, data);
+
         } catch (error) {
             logger.error('Store transaction error:', error.message);
-            return this.fallbackStore('transactions', txHash, data);
+            return this.fallbackStore('transactions', transaction.tx_hash || `tx_${Date.now()}`, data);
         }
     }
 
@@ -148,66 +306,111 @@ class MembaseService {
      */
     async getTransactionLog(agentId, limit = 100) {
         try {
-            const filter = { agent_id: agentId };
-            const result = await this.query('transactions', filter, limit);
+            if (this.isConnected && this.storage) {
+                const conversations = await this.storage.listConversations(this.account);
+                const transactionFiles = conversations.filter(conv => conv.startsWith('transaction_'));
 
-            // Sort by timestamp descending
-            const sorted = result.sort((a, b) =>
-                new Date(b.timestamp) - new Date(a.timestamp)
-            );
+                const transactions = [];
+                for (const file of transactionFiles.slice(-limit)) {
+                    try {
+                        const data = await this.storage.downloadHub(this.account, file);
+                        if (data) {
+                            const parsed = JSON.parse(
+                                data instanceof ArrayBuffer ? new TextDecoder().decode(data) : data.toString()
+                            );
+                            if (!agentId || parsed.agent_id === agentId) {
+                                transactions.push(parsed);
+                            }
+                        }
+                    } catch (err) {
+                        logger.warn('Failed to parse transaction file', { file, error: err.message });
+                    }
+                }
 
-            logger.info('Retrieved transaction log', { agentId, count: sorted.length });
-            return sorted.slice(0, limit);
+                logger.info('Retrieved transaction log', { agentId, count: transactions.length });
+                return transactions;
+            }
+
+            // Fallback
+            return this.fallbackQuery('transactions', agentId, limit);
+
         } catch (error) {
             logger.error('Get transaction log error:', error.message);
             return this.fallbackQuery('transactions', agentId, limit);
         }
     }
 
-    async storeContractTemplate(templateName, contractCode, abi) {
+    /**
+     * Store contract template
+     * @param {string} name - Template name
+     * @param {string} code - Contract code
+     * @param {Object} metadata - Template metadata
+     * @returns {Promise<Object>} Storage result
+     */
+    async storeContractTemplate(name, code, metadata = {}) {
         const data = {
-            name: templateName,
-            code: contractCode,
-            abi,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
+            name,
+            code,
+            metadata,
+            created_at: new Date().toISOString()
         };
 
         try {
-            const result = await this.store('contracts', data);
+            if (this.isConnected && this.storage) {
+                await this.storage.uploadHub(
+                    this.account,
+                    `contract_template_${name}`,
+                    JSON.stringify(data),
+                    null,
+                    false
+                );
 
-            logger.info('Contract template stored', { templateName });
-            return result;
+                logger.info('Contract template stored', { name });
+                return { success: true, stored: true, name };
+            }
+
+            // Fallback
+            return this.fallbackStore('contracts', name, data);
+
         } catch (error) {
             logger.error('Store contract template error:', error.message);
-            return this.fallbackStore('contracts', templateName, data);
+            return this.fallbackStore('contracts', name, data);
         }
     }
 
     /**
      * Get contract template
-     * @param {string} templateName - Template name
+     * @param {string} name - Template name
      * @returns {Promise<Object>} Contract template
      */
-    async getContractTemplate(templateName) {
+    async getContractTemplate(name) {
         try {
-            const filter = { name: templateName };
-            const results = await this.query('contracts', filter, 1);
-
-            if (results.length === 0) {
-                throw new Error(`Contract template '${templateName}' not found`);
+            if (this.isConnected && this.storage) {
+                const data = await this.storage.downloadHub(this.account, `contract_template_${name}`);
+                if (data) {
+                    const parsed = JSON.parse(
+                        data instanceof ArrayBuffer ? new TextDecoder().decode(data) : data.toString()
+                    );
+                    logger.info('Retrieved contract template', { name });
+                    return parsed;
+                }
             }
 
-            logger.info('Retrieved contract template', { templateName });
-            return results[0];
+            // Fallback
+            const template = this.fallbackStorage.contracts.get(name);
+            if (!template) {
+                throw new Error(`Contract template '${name}' not found`);
+            }
+            return template;
+
         } catch (error) {
             logger.error('Get contract template error:', error.message);
-            return this.fallbackQuery('contracts', templateName, 1)[0] || null;
+            throw error;
         }
     }
 
     /**
-     * Query memory with advanced filters
+     * Query memory with filters
      * @param {string} collection - Collection name
      * @param {Object} filters - Query filters
      * @param {number} limit - Result limit
@@ -215,10 +418,44 @@ class MembaseService {
      */
     async queryMemory(collection, filters = {}, limit = 100) {
         try {
-            const results = await this.query(collection, filters, limit);
+            if (this.isConnected && this.storage) {
+                const conversations = await this.storage.listConversations(this.account);
+                const files = conversations.filter(conv => conv.startsWith(`${collection}_`));
 
-            logger.info('Memory query executed', { collection, filters, count: results.length });
-            return results;
+                const results = [];
+                for (const file of files.slice(-limit)) {
+                    try {
+                        const data = await this.storage.downloadHub(this.account, file);
+                        if (data) {
+                            const parsed = JSON.parse(
+                                data instanceof ArrayBuffer ? new TextDecoder().decode(data) : data.toString()
+                            );
+
+                            // Apply filters
+                            let matches = true;
+                            for (const [key, value] of Object.entries(filters)) {
+                                if (parsed[key] !== value) {
+                                    matches = false;
+                                    break;
+                                }
+                            }
+
+                            if (matches) {
+                                results.push(parsed);
+                            }
+                        }
+                    } catch (err) {
+                        logger.warn('Failed to parse file during query', { file, error: err.message });
+                    }
+                }
+
+                logger.info('Query completed', { collection, count: results.length });
+                return results;
+            }
+
+            // Fallback
+            return this.fallbackQuery(collection, filters.agent_id, limit);
+
         } catch (error) {
             logger.error('Query memory error:', error.message);
             return [];
@@ -226,199 +463,75 @@ class MembaseService {
     }
 
     /**
-     * Store data in Unibase
-     * @param {string} collection - Collection name
-     * @param {Object} data - Data to store
-     * @returns {Promise<Object>} Storage result
-     */
-    async store(collection, data) {
-        try {
-            if (!this.apiKey) {
-                throw new Error('Unibase API key not configured');
-            }
-
-            const response = await axios.post(
-                `${this.apiUrl}/store`,
-                {
-                    project_id: this.projectId,
-                    collection,
-                    data
-                },
-                {
-                    headers: {
-                        'Authorization': `Bearer ${this.apiKey}`,
-                        'Content-Type': 'application/json'
-                    },
-                    timeout: 10000
-                }
-            );
-
-            return {
-                success: true,
-                id: response.data.id || this.generateId(),
-                collection,
-                data
-            };
-        } catch (error) {
-            if (error.response?.status === 429) {
-                logger.warn('Unibase rate limit hit, queueing operation');
-                this.queueOperation('store', collection, data);
-            }
-            throw error;
-        }
-    }
-
-    /**
-     * Query data from Unibase
-     * @param {string} collection - Collection name
-     * @param {Object} filter - Query filter
-     * @param {number} limit - Result limit
-     * @returns {Promise<Array>} Query results
-     */
-    async query(collection, filter = {}, limit = 100) {
-        try {
-            if (!this.apiKey) {
-                throw new Error('Unibase API key not configured');
-            }
-
-            const response = await axios.post(
-                `${this.apiUrl}/query`,
-                {
-                    project_id: this.projectId,
-                    collection,
-                    filter,
-                    limit
-                },
-                {
-                    headers: {
-                        'Authorization': `Bearer ${this.apiKey}`,
-                        'Content-Type': 'application/json'
-                    },
-                    timeout: 10000
-                }
-            );
-
-            return response.data.results || [];
-        } catch (error) {
-            throw error;
-        }
-    }
-
-    /**
-     * Fallback store (in-memory)
-     * @param {string} collection - Collection name
-     * @param {string} key - Storage key
-     * @param {Object} data - Data to store
-     * @returns {Object} Storage result
-     */
-    fallbackStore(collection, key, data) {
-        this.usesFallback = true;
-
-        if (!this.fallbackStorage[collection]) {
-            this.fallbackStorage[collection] = new Map();
-        }
-
-        this.fallbackStorage[collection].set(key, data);
-
-        logger.warn(`Using fallback storage for ${collection}:${key}`);
-
-        return {
-            success: true,
-            id: key,
-            collection,
-            data,
-            fallback: true
-        };
-    }
-
-    /**
-     * Fallback query (in-memory)
-     * @param {string} collection - Collection name
-     * @param {string} key - Query key
-     * @param {number} limit - Result limit
-     * @returns {Array} Query results
-     */
-    fallbackQuery(collection, key, limit = 100) {
-        this.usesFallback = true;
-
-        if (!this.fallbackStorage[collection]) {
-            return [];
-        }
-
-        const results = [];
-        for (const [k, v] of this.fallbackStorage[collection].entries()) {
-            if (k.includes(key)) {
-                results.push(v);
-            }
-            if (results.length >= limit) break;
-        }
-
-        logger.warn(`Using fallback query for ${collection}:${key}`);
-        return results;
-    }
-
-    /**
-     * Queue operation for retry
-     * @param {string} operation - Operation type
-     * @param {string} collection - Collection name
-     * @param {Object} data - Operation data
-     */
-    queueOperation(operation, collection, data) {
-        this.operationQueue.push({
-            operation,
-            collection,
-            data,
-            timestamp: new Date().toISOString()
-        });
-    }
-
-    /**
-     * Process queued operations
-     * @returns {Promise<void>}
-     */
-    async processQueue() {
-        if (this.operationQueue.length === 0) return;
-
-        logger.info(`Processing ${this.operationQueue.length} queued operations`);
-
-        const operations = [...this.operationQueue];
-        this.operationQueue = [];
-
-        for (const op of operations) {
-            try {
-                if (op.operation === 'store') {
-                    await this.store(op.collection, op.data);
-                }
-            } catch (error) {
-                logger.error('Failed to process queued operation:', error.message);
-                this.operationQueue.push(op); // Re-queue
-            }
-        }
-    }
-
-    /**
-     * Generate unique ID
-     * @returns {string} Unique ID
-     */
-    generateId() {
-        return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    }
-
-    /**
      * Get storage statistics
      * @returns {Object} Storage stats
      */
     getStats() {
-        return {
-            uses_fallback: this.usesFallback,
-            queued_operations: this.operationQueue.length,
-            fallback_storage: {
+        const stats = {
+            isConnected: this.isConnected,
+            hubUrl: this.hubUrl,
+            membaseId: this.membaseId,
+            account: this.account,
+            memoryInstances: this.memories.size,
+            usesFallback: this.usesFallback,
+            fallbackCounts: {
                 conversations: this.fallbackStorage.conversations.size,
                 preferences: this.fallbackStorage.preferences.size,
                 transactions: this.fallbackStorage.transactions.size,
                 contracts: this.fallbackStorage.contracts.size
             }
         };
+
+        if (this.isConnected && this.storage) {
+            const status = this.storage.getStatus();
+            stats.hubStatus = {
+                queueLength: status.queueLength,
+                isProcessing: status.isProcessing
+            };
+        }
+
+        return stats;
+    }
+
+    /**
+     * Wait for upload queue to complete
+     * @returns {Promise<void>}
+     */
+    async waitForUploadQueue() {
+        if (this.isConnected && this.storage) {
+            await this.storage.waitForUploadQueue();
+            logger.info('Upload queue completed');
+        }
+    }
+
+    /**
+     * Close storage connections
+     */
+    close() {
+        if (this.storage) {
+            this.storage.close();
+            logger.info('Membase storage closed');
+        }
+    }
+
+    /**
+     * Fallback storage operations
+     */
+    fallbackStore(collection, key, data) {
+        this.fallbackStorage[collection].set(key, data);
+        this.usesFallback = true;
+        logger.debug('Data stored in fallback', { collection, key });
+        return { success: true, stored: true, fallback: true };
+    }
+
+    fallbackQuery(collection, agentId, limit) {
+        const results = [];
+        for (const [key, value] of this.fallbackStorage[collection].entries()) {
+            if (!agentId || key.includes(agentId) || value.agent_id === agentId) {
+                results.push(value);
+            }
+        }
+        return results.slice(-limit);
     }
 }
 

@@ -3,9 +3,9 @@ const logger = require('../../utils/logger');
 
 class LLMService {
     constructor() {
-        this.apiUrl = process.env.CHAINGPT_API_URL || 'https://api.chaingpt.org/v1';
+        this.apiUrl = process.env.CHAINGPT_API_URL || 'https://api.chaingpt.org';
         this.apiKey = process.env.CHAINGPT_API_KEY;
-        this.defaultModel = 'gpt-4';
+        this.defaultModel = 'general_assistant';
         this.cache = new Map();
         this.cacheTimeout = 300000; // 5 minutes
     }
@@ -26,24 +26,20 @@ class LLMService {
                 return cached;
             }
 
-            const messages = [];
-            if (systemMessage) {
-                messages.push({ role: 'system', content: systemMessage });
-            }
-            messages.push({ role: 'user', content: prompt });
+            // ChainGPT uses 'question' parameter, not 'messages'
+            const fullQuestion = systemMessage ? `${systemMessage}\n\n${prompt}` : prompt;
 
-            const response = await this.makeRequest('/chat/completions', {
+            const response = await this.makeRequest('/chat/stream', {
                 model,
-                messages,
-                temperature: 0.7,
-                max_tokens: 2000
+                question: fullQuestion,
+                chatHistory: "off"
             });
 
             const result = {
-                response: response.choices[0].message.content,
-                tokens_used: response.usage?.total_tokens || 0,
-                model_used: response.model || model,
-                finish_reason: response.choices[0].finish_reason
+                response: response.answer || response,
+                tokens_used: response.creditsUsed || 1,
+                model_used: model,
+                finish_reason: 'stop'
             };
 
             this.setCache(cacheKey, result);
@@ -144,24 +140,31 @@ class LLMService {
      * @param {string} model - Model to use
      * @returns {Promise<Object>} Response
      */
-    async conversation(messages, model = this.defaultModel) {
+    async conversation(messages, model = this.defaultModel, sdkUniqueId = null) {
         try {
             if (!Array.isArray(messages) || messages.length === 0) {
                 throw new Error('Messages must be a non-empty array');
             }
 
-            const response = await this.makeRequest('/chat/completions', {
+            // Convert messages array to single question with chat history enabled
+            const question = messages[messages.length - 1].content;
+            const requestPayload = {
                 model,
-                messages,
-                temperature: 0.7,
-                max_tokens: 2000
-            });
+                question,
+                chatHistory: "on"
+            };
+
+            if (sdkUniqueId) {
+                requestPayload.sdkUniqueId = sdkUniqueId;
+            }
+
+            const response = await this.makeRequest('/chat/stream', requestPayload);
 
             return {
-                response: response.choices[0].message.content,
-                tokens_used: response.usage?.total_tokens || 0,
-                model_used: response.model || model,
-                finish_reason: response.choices[0].finish_reason,
+                response: response.answer || response,
+                tokens_used: response.creditsUsed || 1,
+                model_used: model,
+                finish_reason: 'stop',
                 conversation_length: messages.length
             };
         } catch (error) {
