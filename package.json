@@ -39,7 +39,7 @@
     "@nomicfoundation/hardhat-toolbox": "^6.1.0",
     "@openzeppelin/contracts": "^5.4.0",
     "@types/jest": "^30.0.0",
-    "hardhat": "^3.0.17",
+    "hardhat": "^2.27.0",
     "jest": "^30.2.0",
     "nodemon": "^3.1.11",
     "supertest": "^7.1.4"
