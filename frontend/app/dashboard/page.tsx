@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { Users, DollarSign, MessageSquare, Activity, TrendingUp, Shield, Brain, Database } from 'lucide-react';
 import axios from 'axios';
 import { useRouter } from 'next/navigation';
+import { useAccount } from 'wagmi';
+import { RefreshCw } from 'lucide-react';
 
 interface Stats {
     agents: number;
@@ -14,6 +16,7 @@ interface Stats {
 
 export default function DashboardOverview() {
     const router = useRouter();
+    const { address } = useAccount();
     const [stats, setStats] = useState<Stats>({
         agents: 0,
         usdcSpent: '0.00',
@@ -22,45 +25,48 @@ export default function DashboardOverview() {
     });
     const [loading, setLoading] = useState(true);
 
+    // Fetch stats from backend
+    const fetchStats = async () => {
+        try {
+            setLoading(true);
+            const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+
+            // Fetch agents
+            const agentsRes = await axios.get(`${API_URL}/api/awe/agents`);
+            const agentCount = agentsRes.data.agents?.length || 0;
+
+            // Fetch payments for stats
+            const historyRes = await axios.get(`${API_URL}/api/awe/payment/history`);
+            const history = historyRes.data.history || [];
+
+            const totalSpent = history.reduce((acc: number, curr: any) => {
+                let val = 0;
+                if (typeof curr.amount === 'string' && curr.amount.includes('USDC')) {
+                    val = parseFloat(curr.amount.split(' ')[0]);
+                } else {
+                    val = parseFloat(curr.amount) / 1000000;
+                }
+                return acc + (isNaN(val) ? 0 : val);
+            }, 0);
+
+            setStats({
+                agents: agentCount,
+                usdcSpent: totalSpent.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+                conversations: 0, // No conversations index yet
+                transactions: history.length
+            });
+        } catch (error) {
+            console.error('Error fetching stats:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
     useEffect(() => {
-        // Fetch stats from backend
-        const fetchStats = async () => {
-            try {
-                const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
-
-                // Fetch agents
-                const agentsRes = await axios.get(`${API_URL}/api/awe/agents`);
-                const agentCount = agentsRes.data.agents?.length || 0;
-
-                // Fetch payments for stats
-                const historyRes = await axios.get(`${API_URL}/api/awe/payment/history`);
-                const history = historyRes.data.history || [];
-
-                const totalSpent = history.reduce((acc: number, curr: any) => {
-                    let val = 0;
-                    if (typeof curr.amount === 'string' && curr.amount.includes('USDC')) {
-                        val = parseFloat(curr.amount.split(' ')[0]);
-                    } else {
-                        val = parseFloat(curr.amount) / 1000000;
-                    }
-                    return acc + (isNaN(val) ? 0 : val);
-                }, 0);
-
-                setStats({
-                    agents: agentCount,
-                    usdcSpent: totalSpent.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-                    conversations: 0, // No conversations index yet
-                    transactions: history.length
-                });
-            } catch (error) {
-                console.error('Error fetching stats:', error);
-            } finally {
-                setLoading(false);
-            }
-        };
-
         fetchStats();
-    }, []);
+    }, [address]);
+
+
 
     const statCards = [
         {

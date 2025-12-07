@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useAccount } from 'wagmi';
 import { Send, ArrowRightLeft, Rocket, Phone, Shield, DollarSign, AlertTriangle } from 'lucide-react';
-// import { X402PaymentFlow } from '@/components/x402/PaymentFlow';
+import { X402PaymentFlow } from '@/components/x402/PaymentFlow';
 import axios from 'axios';
 
 type ActionType = 'transfer' | 'swap' | 'deploy' | 'call';
@@ -28,12 +28,15 @@ interface ActionFormData {
 }
 
 export default function ActionsPage() {
-    const { address, isConnected } = useAccount();
+    const { address, isConnected, chain } = useAccount();
     const [selectedAction, setSelectedAction] = useState<ActionType | null>(null);
     const [formData, setFormData] = useState<ActionFormData>({ type: 'transfer' });
     const [showPayment, setShowPayment] = useState(false);
     const [actionData, setActionData] = useState<any>(null);
     const [txHistory, setTxHistory] = useState<any[]>([]);
+
+    const isBaseSepolia = chain?.id === 84532;
+    const isBNBTestnet = chain?.id === 97;
 
     const actions = [
         {
@@ -41,30 +44,39 @@ export default function ActionsPage() {
             icon: Send,
             title: 'Transfer Tokens',
             description: 'Send tokens to any address',
-            color: 'purple'
+            color: 'purple',
+            networks: ['base-sepolia', 'bsc-testnet']
         },
         {
             type: 'swap' as ActionType,
             icon: ArrowRightLeft,
             title: 'Swap Tokens',
             description: 'Exchange tokens via DEX',
-            color: 'blue'
+            color: 'blue',
+            networks: ['bsc-testnet']
         },
         {
             type: 'deploy' as ActionType,
             icon: Rocket,
             title: 'Deploy Contract',
             description: 'Deploy smart contract on-chain',
-            color: 'emerald'
+            color: 'emerald',
+            networks: ['base-sepolia', 'bsc-testnet']
         },
         {
             type: 'call' as ActionType,
             icon: Phone,
             title: 'Call Contract',
             description: 'Execute contract function',
-            color: 'orange'
+            color: 'orange',
+            networks: ['base-sepolia', 'bsc-testnet']
         }
-    ];
+    ].filter(action => {
+        if (!chain) return true;
+        if (isBaseSepolia) return action.networks.includes('base-sepolia');
+        if (isBNBTestnet) return action.networks.includes('bsc-testnet');
+        return true;
+    });
 
     const handleExecute = async () => {
         if (!address) return;
@@ -114,27 +126,52 @@ export default function ActionsPage() {
     };
 
     return (
-        <div className="space-y-6">
-            {/* Header */}
-            <div>
-                <h1 className="text-3xl font-bold text-white mb-2">Agent Actions</h1>
-                <p className="text-slate-400">Execute blockchain actions with x402 payment protection</p>
+        <div className="space-y-8">
+            <div className="flex items-center justify-between">
+                <div>
+                    <h1 className="text-3xl font-bold text-white mb-2">Agent Actions</h1>
+                    <p className="text-slate-400">Execute on-chain operations powered by AI agents</p>
+                </div>
+                {/* Network Badge */}
+                <div className={`px-4 py-2 rounded-lg border ${isBaseSepolia ? 'bg-blue-500/10 border-blue-500/20 text-blue-400' :
+                        isBNBTestnet ? 'bg-yellow-500/10 border-yellow-500/20 text-yellow-400' :
+                            'bg-red-500/10 border-red-500/20 text-red-400'
+                    }`}>
+                    {chain?.name || 'Unsupported Network'}
+                </div>
             </div>
 
-            {/* Action Selection */}
-            {!selectedAction && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Unsupported Network Warning */}
+            {!isBaseSepolia && !isBNBTestnet && (
+                <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-6 flex flex-col items-center text-center">
+                    <AlertTriangle className="w-12 h-12 text-red-500 mb-4" />
+                    <h3 className="text-xl font-bold text-white mb-2">Unsupported Network</h3>
+                    <p className="text-slate-400 max-w-md">
+                        Please switch to Base Sepolia or BNB Testnet to use Agent Actions.
+                    </p>
+                </div>
+            )}
+
+            {/* Action Selection Grid */}
+            {!selectedAction && (isBaseSepolia || isBNBTestnet) && (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                     {actions.map((action) => (
                         <button
                             key={action.type}
                             onClick={() => {
                                 setSelectedAction(action.type);
-                                setFormData({ type: action.type });
+                                setFormData(prev => ({ ...prev, type: action.type }));
                             }}
-                            className="bg-slate-900 border border-slate-800 rounded-2xl p-8 hover:border-purple-500/50 transition-all text-left group"
+                            className={`
+                                relative group p-6 rounded-2xl border border-slate-800 bg-slate-900/50 
+                                hover:bg-slate-800 transition-all text-left hover:scale-[1.02]
+                            `}
                         >
-                            <div className={`w-16 h-16 rounded-xl bg-${action.color}-500/20 flex items-center justify-center mb-4 group-hover:bg-${action.color}-500/30 transition-colors`}>
-                                <action.icon className={`w-8 h-8 text-${action.color}-400`} />
+                            <div className={`
+                                w-12 h-12 rounded-xl mb-4 flex items-center justify-center
+                                bg-${action.color}-500/20 text-${action.color}-400 group-hover:bg-${action.color}-500 group-hover:text-white transition-colors
+                            `}>
+                                <action.icon className="w-6 h-6" />
                             </div>
                             <h3 className="text-xl font-bold text-white mb-2">{action.title}</h3>
                             <p className="text-slate-400">{action.description}</p>
@@ -199,39 +236,44 @@ export default function ActionsPage() {
                     {/* Swap Form */}
                     {selectedAction === 'swap' && (
                         <div className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium text-slate-300 mb-2">From Token</label>
-                                <select
-                                    value={formData.fromToken || 'USDC'}
-                                    onChange={(e) => setFormData({ ...formData, fromToken: e.target.value })}
-                                    className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                >
-                                    <option value="USDC">USDC</option>
-                                    <option value="ETH">ETH</option>
-                                    <option value="BNB">BNB</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-slate-300 mb-2">To Token</label>
-                                <select
-                                    value={formData.toToken || 'ETH'}
-                                    onChange={(e) => setFormData({ ...formData, toToken: e.target.value })}
-                                    className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                >
-                                    <option value="ETH">ETH</option>
-                                    <option value="USDC">USDC</option>
-                                    <option value="BNB">BNB</option>
-                                </select>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-300 mb-2">From</label>
+                                    <select
+                                        value={formData.fromToken || 'USDC'}
+                                        onChange={(e) => setFormData({ ...formData, fromToken: e.target.value })}
+                                        className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                    >
+                                        <option value="USDC">USDC</option>
+                                        <option value="BNB">BNB</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-300 mb-2">To</label>
+                                    <select
+                                        value={formData.toToken || 'AWE'}
+                                        onChange={(e) => setFormData({ ...formData, toToken: e.target.value })}
+                                        className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                    >
+                                        <option value="AWE">AWE</option>
+                                        <option value="CGPT">CGPT</option>
+                                    </select>
+                                </div>
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-slate-300 mb-2">Amount</label>
-                                <input
-                                    type="text"
-                                    value={formData.swapAmount || ''}
-                                    onChange={(e) => setFormData({ ...formData, swapAmount: e.target.value })}
-                                    placeholder="0.0"
-                                    className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                />
+                                <div className="relative">
+                                    <input
+                                        type="text"
+                                        value={formData.swapAmount || ''}
+                                        onChange={(e) => setFormData({ ...formData, swapAmount: e.target.value })}
+                                        placeholder="0.0"
+                                        className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                    />
+                                    <div className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400">
+                                        {formData.fromToken || 'USDC'}
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     )}
@@ -240,13 +282,13 @@ export default function ActionsPage() {
                     {selectedAction === 'deploy' && (
                         <div className="space-y-4">
                             <div>
-                                <label className="block text-sm font-medium text-slate-300 mb-2">Contract Code (Solidity)</label>
+                                <label className="block text-sm font-medium text-slate-300 mb-2">Contract Bytecode</label>
                                 <textarea
                                     value={formData.contractCode || ''}
                                     onChange={(e) => setFormData({ ...formData, contractCode: e.target.value })}
-                                    placeholder="pragma solidity ^0.8.0;..."
-                                    rows={10}
-                                    className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 font-mono text-sm resize-none"
+                                    placeholder="0x..."
+                                    rows={4}
+                                    className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 font-mono text-sm"
                                 />
                             </div>
                             <div>
@@ -255,7 +297,7 @@ export default function ActionsPage() {
                                     type="text"
                                     value={formData.constructorArgs || ''}
                                     onChange={(e) => setFormData({ ...formData, constructorArgs: e.target.value })}
-                                    placeholder='["arg1", "arg2"]'
+                                    placeholder='["arg1", 123]'
                                     className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 font-mono"
                                 />
                             </div>
@@ -319,7 +361,7 @@ export default function ActionsPage() {
             )}
 
             {/* x402 Payment Flow */}
-            {/* {showPayment && (
+            {showPayment && (
                 <X402PaymentFlow
                     serviceType={selectedAction as any}
                     agentId={address}
@@ -327,7 +369,7 @@ export default function ActionsPage() {
                     onSuccess={handlePaymentSuccess}
                     onCancel={() => setShowPayment(false)}
                 />
-            )} */}
+            )}
 
             {/* Transaction History */}
             {txHistory.length > 0 && (
@@ -356,3 +398,4 @@ export default function ActionsPage() {
         </div>
     );
 }
+

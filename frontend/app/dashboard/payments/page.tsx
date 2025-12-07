@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { DollarSign, ArrowUpRight, ArrowDownLeft, Clock, RefreshCw } from 'lucide-react';
+import { useAccount } from 'wagmi';
+import { ConnectButton } from '@rainbow-me/rainbowkit';
 import axios from 'axios';
 
 interface Payment {
@@ -21,6 +23,7 @@ interface Payment {
 }
 
 export default function PaymentsPage() {
+    const { address, isConnected } = useAccount();
     const [payments, setPayments] = useState<Payment[]>([]);
     const [loading, setLoading] = useState(true);
     const [totalVolume, setTotalVolume] = useState<number>(0);
@@ -57,6 +60,20 @@ export default function PaymentsPage() {
     useEffect(() => {
         fetchHistory();
     }, []);
+
+    // Wallet check
+    if (!isConnected) {
+        return (
+            <div className="max-w-5xl mx-auto">
+                <div className="text-center py-20">
+                    <DollarSign className="w-16 h-16 text-slate-600 mx-auto mb-4" />
+                    <h2 className="text-2xl font-bold text-white mb-2">Connect Your Wallet</h2>
+                    <p className="text-slate-400 mb-6">Connect your wallet to view payment history</p>
+                    <ConnectButton />
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="max-w-5xl mx-auto space-y-8">

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Plus, Bot, ExternalLink, MessageSquare, Wallet, Globe, X, Loader2 } from 'lucide-react';
+import { Plus, Bot, ExternalLink, MessageSquare, Wallet, Globe, X, Loader2, AlertTriangle } from 'lucide-react';
 import axios from 'axios';
 import Link from 'next/link';
 import { useAccount } from 'wagmi';
@@ -16,7 +16,7 @@ interface Agent {
 }
 
 export default function AgentsPage() {
-    const { address, isConnected } = useAccount();
+    const { address, isConnected, chain } = useAccount();
     const [agents, setAgents] = useState<Agent[]>([]);
     const [loading, setLoading] = useState(true);
     const [showCreateModal, setShowCreateModal] = useState(false);
@@ -77,8 +77,26 @@ export default function AgentsPage() {
         }
     };
 
+    const isBaseSepolia = chain?.id === 84532;
+
     return (
         <div className="space-y-6">
+            {/* Network Warning */}
+            {!isBaseSepolia && isConnected && (
+                <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-4">
+                    <div className="flex items-start gap-3">
+                        <AlertTriangle className="w-5 h-5 text-yellow-400 flex-shrink-0 mt-0.5" />
+                        <div>
+                            <h3 className="font-semibold text-yellow-300 mb-1">Wrong Network</h3>
+                            <p className="text-sm text-yellow-200/80">
+                                Agent creation is only available on <strong>Base Sepolia Testnet</strong>.
+                                Please switch networks using the toggle in the top bar.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Header */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
@@ -87,7 +105,11 @@ export default function AgentsPage() {
                 </div>
                 <button
                     onClick={() => setShowCreateModal(true)}
-                    className="flex items-center gap-2 px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-semibold transition-all shadow-lg shadow-purple-900/20"
+                    disabled={!isBaseSepolia}
+                    className={`flex items-center gap-2 px-6 py-3 rounded-xl font-semibold transition-all shadow-lg ${isBaseSepolia
+                        ? 'bg-purple-600 hover:bg-purple-700 text-white shadow-purple-900/20'
+                        : 'bg-slate-700 text-slate-400 cursor-not-allowed'
+                        }`}
                 >
                     <Plus className="w-5 h-5" />
                     <span>Create New Agent</span>
