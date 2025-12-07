@@ -1,11 +1,37 @@
+# Dependencies
 node_modules/
+
+# Environment
 .env
 .env.local
 .env.*.local
+.env.test
+
+# Build
 dist/
 build/
+.next/
+out/
+
+# Logs
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS & Tools
 .DS_Store
 .idea/
-.vscode/settings.json
+.vscode/
+
+# Hardhat / Blockchain
 cache/
+artifacts/
+coverage/
+typechain-types/
+deployed_address.txt
+
+# Temp
+.gemini/
+.agent/
+tmp/

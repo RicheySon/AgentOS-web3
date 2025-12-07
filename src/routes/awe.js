@@ -198,7 +198,7 @@ router.post('/payment/accept', async (req, res) => {
 /**
  * @route   POST /api/awe/payment/execute-transfer
  * @desc    Execute REAL USDC transfer on Base Sepolia
- * @access  Public
+ * @access  Public (for hackathon demo)
  */
 router.post('/payment/execute-transfer', async (req, res) => {
     try {
@@ -215,13 +215,36 @@ router.post('/payment/execute-transfer', async (req, res) => {
 
         res.json(result);
     } catch (error) {
-        logger.error('Execute USDC transfer error:', error.message);
+        logger.error('Execute transfer error:', error.message);
         res.status(500).json({
             success: false,
             error: error.message
         });
     }
 });
+
+/**
+ * @route   GET /api/awe/payment/history
+ * @desc    Get all payment history
+ * @access  Public
+ */
+router.get('/payment/history', async (req, res) => {
+    try {
+        const history = x402PaymentService.getAllPayments();
+        res.json({
+            success: true,
+            count: history.length,
+            history
+        });
+    } catch (error) {
+        logger.error('Get payment history error:', error.message);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
 
 /**
  * @route   GET /api/awe/payment/pricing
