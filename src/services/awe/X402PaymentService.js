@@ -232,6 +232,10 @@ class X402PaymentService {
         return this.payments.filter(p => p.agentId === agentId);
     }
 
+    getAllPayments() {
+        return this.payments;
+    }
+
     getPricing() {
         const pricing = {};
         for (const [service, amount] of Object.entries(this.servicePricing)) {
