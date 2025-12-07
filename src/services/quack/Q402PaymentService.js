@@ -8,8 +8,8 @@ class QuackQ402Service {
     constructor() {
         this.network = 'bsc-testnet';
         this.chainId = 97;
-        this.paymentToken = 'USDT'; // BEP-20 USDT on BNB
-        this.tokenAddress = '0x337610d27c682E347C9cD60BD4b3b107C9d34dDd';
+        this.paymentToken = 'USDC'; // BEP-20 USDC on BNB (user has this)
+        this.tokenAddress = '0x64544969ed7EBf5f083679233325356EbE738930'; // USDC on BNB Testnet
         this.payments = new Map();
         this.pricing = {
             'agent-creation': '1.0',
