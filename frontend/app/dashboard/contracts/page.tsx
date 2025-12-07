@@ -14,7 +14,7 @@ interface AuditResult {
 }
 
 export default function ContractsPage() {
-    const { address, isConnected } = useAccount();
+    const { address, isConnected, chain } = useAccount();
     const [mode, setMode] = useState<'generate' | 'audit'>('generate');
     const [description, setDescription] = useState('');
     const [contractCode, setContractCode] = useState('');
@@ -24,6 +24,8 @@ export default function ContractsPage() {
     const [showPayment, setShowPayment] = useState(false);
     const [deployData, setDeployData] = useState<any>(null);
 
+    const networkName = chain?.id === 84532 ? 'base-sepolia' : 'bsc-testnet';
+
     const handleGenerate = async () => {
         if (!description.trim()) return;
 
@@ -32,7 +34,7 @@ export default function ContractsPage() {
             const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
             const response = await axios.post(`${API_URL}/api/chaingpt/generate-contract`, {
                 description,
-                network: 'bsc-testnet'
+                network: networkName
             });
 
             if (response.data.success) {
@@ -70,7 +72,7 @@ export default function ContractsPage() {
     const handleDeploy = () => {
         setDeployData({
             code: contractCode,
-            network: 'bsc-testnet'
+            network: networkName
         });
         setShowPayment(true);
     };
@@ -82,7 +84,7 @@ export default function ContractsPage() {
             const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
             const response = await axios.post(`${API_URL}/api/blockchain/deploy-contract`, {
                 code: contractCode,
-                network: 'bsc-testnet',
+                network: networkName,
                 paymentTxHash: txHash
             });
 
@@ -129,8 +131,8 @@ export default function ContractsPage() {
                 <button
                     onClick={() => setMode('generate')}
                     className={`flex-1 px-6 py-3 rounded-xl font-semibold transition-all ${mode === 'generate'
-                            ? 'bg-purple-600 text-white'
-                            : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                        ? 'bg-purple-600 text-white'
+                        : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
                         }`}
                 >
                     <FileCode className="w-5 h-5 inline mr-2" />
@@ -139,8 +141,8 @@ export default function ContractsPage() {
                 <button
                     onClick={() => setMode('audit')}
                     className={`flex-1 px-6 py-3 rounded-xl font-semibold transition-all ${mode === 'audit'
-                            ? 'bg-purple-600 text-white'
-                            : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                        ? 'bg-purple-600 text-white'
+                        : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
                         }`}
                 >
                     <Shield className="w-5 h-5 inline mr-2" />

@@ -25,137 +25,124 @@ app.use(cors({
 // Logging middleware
 app.use(morgan('combined', {
   stream: {
-    write: (message) => logger.info(message.trim())
-  }
-}));
 
-// Body parsing middleware
-app.use(bodyParser.json({ limit: '10mb' }));
-app.use(bodyParser.urlencoded({ extended: true, limit: '10mb' }));
+    // Routes
+    const chainGPTRouter = require('./routes/chainGPT');
+    const blockchainRouter = require('./routes/blockchain');
+    const memoryRouter = require('./routes/memory');
+    const x402Router = require('./routes/x402');
+    const previewRouter = require('./routes/preview');
+    const auditRouter = require('./routes/audit');
+    const aweRouter = require('./routes/awe');
+    const agentRouter = require('./routes/agent');
+    const securityRouter = require('./routes/security');
+    const quackRouter = require('./routes/quack');
 
-// Request timestamp
-app.use((req, res, next) => {
-  req.requestTime = new Date().toISOString();
-  next();
-});
+    app.use('/api/health', healthRouter);
+    app.use('/api/ai', chainGPTRouter);
+    app.use('/api/blockchain', blockchainRouter);
+    app.use('/api/memory', memoryRouter);
+    app.use('/api/payment', x402Router);
+    app.use('/api/policy', x402Router);
+    app.use('/api/signature', x402Router);
+    app.use('/api/preview', previewRouter);
+    app.use('/api/audit', auditRouter);
+    app.use('/api/awe', aweRouter);
+    app.use('/api/agent', agentRouter);
+    app.use('/api/security', securityRouter);
+    app.use('/api/quack', quackRouter);
 
-// Routes
-const chainGPTRouter = require('./routes/chainGPT');
-const blockchainRouter = require('./routes/blockchain');
-const memoryRouter = require('./routes/memory');
-const x402Router = require('./routes/x402');
-const previewRouter = require('./routes/preview');
-const auditRouter = require('./routes/audit');
-const aweRouter = require('./routes/awe');
-const agentRouter = require('./routes/agent');
-const securityRouter = require('./routes/security');
-const quackRouter = require('./routes/quack');
+    // Root endpoint
+    app.get('/', (req, res) => {
+      res.json({
+        success: true,
+        message: 'AgentOS Web3 API - Three Bounty Integration',
+        version: '1.0.0',
+        bounties: [
+          'AWE Network (ERC-8004 + x402 on Base Sepolia)',
+          'Quack × ChainGPT (Super Web3 Agent on BNB Testnet)',
+          'Unibase (Immortal AI Agent with Membase)'
+        ],
+        networks: [
+          'Base Sepolia Testnet',
+          'BNB Smart Chain Testnet'
+        ],
+        timestamp: new Date().toISOString()
+      });
+    });
 
-app.use('/api/health', healthRouter);
-app.use('/api/ai', chainGPTRouter);
-app.use('/api/blockchain', blockchainRouter);
-app.use('/api/memory', memoryRouter);
-app.use('/api/payment', x402Router);
-app.use('/api/policy', x402Router);
-app.use('/api/signature', x402Router);
-app.use('/api/preview', previewRouter);
-app.use('/api/audit', auditRouter);
-app.use('/api/awe', aweRouter);
-app.use('/api/agent', agentRouter);
-app.use('/api/security', securityRouter);
-app.use('/api/quack', quackRouter);
+    // 404 handler
+    app.use(notFoundHandler);
 
-// Root endpoint
-app.get('/', (req, res) => {
-  res.json({
-    success: true,
-    message: 'AgentOS Web3 API - Three Bounty Integration',
-    version: '1.0.0',
-    bounties: [
-      'AWE Network (ERC-8004 + x402 on Base Sepolia)',
-      'Quack × ChainGPT (Super Web3 Agent on BNB Testnet)',
-      'Unibase (Immortal AI Agent with Membase)'
-    ],
-    networks: [
-      'Base Sepolia Testnet',
-      'BNB Smart Chain Testnet'
-    ],
-    timestamp: new Date().toISOString()
-  });
-});
+    // Error handling middleware (must be last)
+    app.use(errorHandler);
 
-// 404 handler
-app.use(notFoundHandler);
+    // Graceful shutdown
+    const gracefulShutdown = (signal) => {
+      logger.info(`${signal} received. Starting graceful shutdown...`);
 
-// Error handling middleware (must be last)
-app.use(errorHandler);
+      server.close(() => {
+        logger.info('HTTP server closed');
 
-// Graceful shutdown
-const gracefulShutdown = (signal) => {
-  logger.info(`${signal} received. Starting graceful shutdown...`);
+        // Close database connections, cleanup resources, etc.
+        process.exit(0);
+      });
 
-  server.close(() => {
-    logger.info('HTTP server closed');
+      // Force shutdown after 30 seconds
+      setTimeout(() => {
+        logger.error('Forced shutdown after timeout');
+        process.exit(1);
+      }, 30000);
+    };
 
-    // Close database connections, cleanup resources, etc.
-    process.exit(0);
-  });
+    // Start server
+    const server = app.listen(PORT, async () => {
+      logger.info(`🚀 AgentOS Web3 API server running on port ${PORT}`);
+      logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
+      logger.info(`\n📡 Network Configuration:`);
+      logger.info(`  - Base Sepolia: ${process.env.BASE_TESTNET_RPC}`);
+      logger.info(`  - BNB Testnet: ${process.env.BNB_TESTNET_RPC}`);
+      logger.info(`\n🎯 Bounty Integrations:`);
+      logger.info(`  ✅ AWE Network (ERC-8004 + x402)`);
+      logger.info(`  ✅ Quack × ChainGPT (Super Web3 Agent)`);
+      logger.info(`  ✅ Unibase (Immortal AI Agent)`);
 
-  // Force shutdown after 30 seconds
-  setTimeout(() => {
-    logger.error('Forced shutdown after timeout');
-    process.exit(1);
-  }, 30000);
-};
+      // Check blockchain connections on startup
+      try {
+        const multiNetworkService = require('./services/blockchain/MultiNetworkService');
 
-// Start server
-const server = app.listen(PORT, async () => {
-  logger.info(`🚀 AgentOS Web3 API server running on port ${PORT}`);
-  logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
-  logger.info(`\n📡 Network Configuration:`);
-  logger.info(`  - Base Sepolia: ${process.env.BASE_TESTNET_RPC}`);
-  logger.info(`  - BNB Testnet: ${process.env.BNB_TESTNET_RPC}`);
-  logger.info(`\n🎯 Bounty Integrations:`);
-  logger.info(`  ✅ AWE Network (ERC-8004 + x402)`);
-  logger.info(`  ✅ Quack × ChainGPT (Super Web3 Agent)`);
-  logger.info(`  ✅ Unibase (Immortal AI Agent)`);
+        // Check Base Sepolia
+        const baseInfo = await multiNetworkService.getNetworkInfo('base-sepolia');
+        logger.info(`\n✅ Connected to Base Sepolia - Block #${baseInfo.block_number}`);
 
-  // Check blockchain connections on startup
-  try {
-    const multiNetworkService = require('./services/blockchain/MultiNetworkService');
+        // Check BNB Testnet
+        const bnbInfo = await multiNetworkService.getNetworkInfo('bnb-testnet');
+        logger.info(`✅ Connected to BNB Testnet - Block #${bnbInfo.block_number}`);
 
-    // Check Base Sepolia
-    const baseInfo = await multiNetworkService.getNetworkInfo('base-sepolia');
-    logger.info(`\n✅ Connected to Base Sepolia - Block #${baseInfo.block_number}`);
+        logger.info(`\n🌐 API Endpoints:`);
+        logger.info(`  - AWE Network: http://localhost:${PORT}/api/awe`);
+        logger.info(`  - Agent Orchestrator: http://localhost:${PORT}/api/agent`);
+        logger.info(`  - ChainGPT: http://localhost:${PORT}/api/ai`);
+        logger.info(`  - Memory: http://localhost:${PORT}/api/memory`);
+      } catch (error) {
+        logger.error(`❌ Failed to connect to networks: ${error.message}`);
+      }
+    });
 
-    // Check BNB Testnet
-    const bnbInfo = await multiNetworkService.getNetworkInfo('bnb-testnet');
-    logger.info(`✅ Connected to BNB Testnet - Block #${bnbInfo.block_number}`);
+    // Handle shutdown signals
+    process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+    process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
-    logger.info(`\n🌐 API Endpoints:`);
-    logger.info(`  - AWE Network: http://localhost:${PORT}/api/awe`);
-    logger.info(`  - Agent Orchestrator: http://localhost:${PORT}/api/agent`);
-    logger.info(`  - ChainGPT: http://localhost:${PORT}/api/ai`);
-    logger.info(`  - Memory: http://localhost:${PORT}/api/memory`);
-  } catch (error) {
-    logger.error(`❌ Failed to connect to networks: ${error.message}`);
-  }
-});
+    // Handle uncaught exceptions
+    process.on('uncaughtException', (error) => {
+      logger.error('Uncaught Exception:', error);
+      process.exit(1);
+    });
 
-// Handle shutdown signals
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+    // Handle unhandled promise rejections
+    process.on('unhandledRejection', (reason, promise) => {
+      logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+      process.exit(1);
+    });
 
-// Handle uncaught exceptions
-process.on('uncaughtException', (error) => {
-  logger.error('Uncaught Exception:', error);
-  process.exit(1);
-});
-
-// Handle unhandled promise rejections
-process.on('unhandledRejection', (reason, promise) => {
-  logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
-  process.exit(1);
-});
-
-module.exports = app;
+    module.exports = app;
