@@ -48,6 +48,7 @@ const previewRouter = require('./routes/preview');
 const auditRouter = require('./routes/audit');
 const aweRouter = require('./routes/awe');
 const agentRouter = require('./routes/agent');
+const securityRouter = require('./routes/security');
 
 app.use('/api/health', healthRouter);
 app.use('/api/ai', chainGPTRouter);
@@ -60,6 +61,7 @@ app.use('/api/preview', previewRouter);
 app.use('/api/audit', auditRouter);
 app.use('/api/awe', aweRouter);
 app.use('/api/agent', agentRouter);
+app.use('/api/security', securityRouter);
 
 // Root endpoint
 app.get('/', (req, res) => {

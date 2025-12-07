@@ -10,6 +10,7 @@
     },
     "dependencies": {
         "@rainbow-me/rainbowkit": "^2.2.10",
+        "@scure/base": "^2.0.0",
         "@tanstack/react-query": "^5.90.12",
         "axios": "^1.7.9",
         "framer-motion": "^11.15.0",
@@ -20,7 +21,8 @@
         "react-dom": "^19.0.0",
         "react-markdown": "^10.1.0",
         "viem": "^2.41.2",
-        "wagmi": "^2.19.5"
+        "wagmi": "^2.19.5",
+        "zod": "^4.1.13"
     },
     "devDependencies": {
         "@types/node": "^22",

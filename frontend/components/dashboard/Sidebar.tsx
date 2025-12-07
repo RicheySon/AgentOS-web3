@@ -1,6 +1,6 @@
 'use client';
 
-import { Home, Bot, Users, CreditCard, Database, BarChart, Settings } from 'lucide-react';
+import { Home, Bot, Users, CreditCard, Database, BarChart, Settings, Zap, Shield, FileCode } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
@@ -8,6 +8,9 @@ const navItems = [
     { icon: Home, label: 'Overview', href: '/dashboard' },
     { icon: Bot, label: 'AI Chat', href: '/dashboard/chat' },
     { icon: Users, label: 'Agents', href: '/dashboard/agents' },
+    { icon: Zap, label: 'Actions', href: '/dashboard/actions' },
+    { icon: FileCode, label: 'Contracts', href: '/dashboard/contracts' },
+    { icon: Shield, label: 'Security', href: '/dashboard/security' },
     { icon: CreditCard, label: 'Payments', href: '/dashboard/payments' },
     { icon: Database, label: 'Memory', href: '/dashboard/memory' },
     { icon: BarChart, label: 'Analytics', href: '/dashboard/analytics' },

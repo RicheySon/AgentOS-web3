@@ -490,4 +490,41 @@ router.post('/query', asyncHandler(async (req, res) => {
     });
 }));
 
+/**
+ * @route   GET /api/memory/stats
+ * @desc    Get memory statistics
+ * @access  Public
+ */
+router.get('/stats', asyncHandler(async (req, res) => {
+    try {
+        const stats = await membaseService.getStats();
+
+        res.json({
+            success: true,
+            data: {
+                totalConversations: stats.conversationCount || 0,
+                totalMessages: stats.messageCount || 0,
+                storageUsed: stats.storageSize || '0 KB',
+                lastSync: stats.lastSync || new Date().toISOString(),
+                hubUrl: stats.hubUrl || 'https://testnet.hub.membase.io',
+                isConnected: stats.isConnected !== false
+            },
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        logger.error('Get memory stats error:', error);
+        res.json({
+            success: true,
+            data: {
+                totalConversations: 0,
+                totalMessages: 0,
+                storageUsed: '0 KB',
+                lastSync: new Date().toISOString(),
+                hubUrl: 'https://testnet.hub.membase.io',
+                isConnected: false
+            }
+        });
+    }
+}));
+
 module.exports = router;
