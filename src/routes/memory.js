@@ -29,6 +29,44 @@ router.get('/conversation/:agentId', asyncHandler(async (req, res) => {
 }));
 
 /**
+ * @route   POST /api/memory/conversation
+ * @desc    Save conversation messages (user + AI response)
+ * @access  Public
+ */
+router.post('/conversation', asyncHandler(async (req, res) => {
+    const { agentId, userMessage, aiResponse } = req.body;
+
+    if (!agentId || !userMessage || !aiResponse) {
+        return res.status(400).json({
+            success: false,
+            error: 'Missing required fields: agentId, userMessage, aiResponse'
+        });
+    }
+
+    try {
+        // Save user message
+        await conversationManager.addMessage(agentId, userMessage, 'user', {});
+
+        // Save AI response
+        await conversationManager.addMessage(agentId, aiResponse, 'assistant', {});
+
+        logger.info(`Conversation saved for ${agentId}`);
+
+        res.json({
+            success: true,
+            message: 'Conversation saved successfully',
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        logger.error('Save conversation error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+}));
+
+/**
  * @route   POST /api/memory/conversation/init
  * @desc    Initialize new conversation
  * @access  Public
