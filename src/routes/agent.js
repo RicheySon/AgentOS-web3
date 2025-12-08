@@ -120,6 +120,34 @@ router.post('/defi-action', async (req, res) => {
 });
 
 /**
+ * @route   POST /api/agent/execute-action
+ * @desc    Execute unified action
+ * @access  Public
+ */
+router.post('/execute-action', async (req, res) => {
+    try {
+        const { actionType, actionData, paymentTxHash } = req.body;
+
+        if (!actionType || !actionData) {
+            return res.status(400).json({
+                success: false,
+                error: 'Missing required fields: actionType, actionData'
+            });
+        }
+
+        const result = await agentOrchestrator.executeAction(actionType, actionData, paymentTxHash);
+
+        res.json(result);
+    } catch (error) {
+        logger.error('Execute action workflow error:', error.message);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
  * @route   POST /api/agent/workflow/execute
  * @desc    Execute generic workflow
  * @access  Public

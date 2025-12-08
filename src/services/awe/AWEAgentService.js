@@ -34,7 +34,7 @@ class AWEAgentService {
 
             // Switch to Base Sepolia
             multiNetworkService.switchNetwork(this.network);
-            const clients = multiNetworkService.getViemClients(this.network);
+            // const clients = multiNetworkService.getViemClients(this.network); // Not needed for creation
             const config = multiNetworkService.getNetworkConfig(this.network);
 
             // Generate unique agent ID

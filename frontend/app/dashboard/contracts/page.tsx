@@ -32,13 +32,13 @@ export default function ContractsPage() {
         setGenerating(true);
         try {
             const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
-            const response = await axios.post(`${API_URL}/api/chaingpt/generate-contract`, {
+            const response = await axios.post(`${API_URL}/api/ai/generate-contract`, {
                 description,
                 network: networkName
             });
 
             if (response.data.success) {
-                setContractCode(response.data.code);
+                setContractCode(response.data.data.contract_code);
             }
         } catch (error) {
             console.error('Contract generation failed:', error);
@@ -55,12 +55,21 @@ export default function ContractsPage() {
 
         try {
             const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
-            const response = await axios.post(`${API_URL}/api/chaingpt/audit-contract`, {
-                code: contractCode
+            const response = await axios.post(`${API_URL}/api/ai/audit-contract`, {
+                contractCode: contractCode,
+                auditType: 'security'
             });
 
             if (response.data.success) {
-                setAuditResults(response.data.findings || []);
+                const vulns = response.data.data.vulnerabilities || [];
+                // Map auditor service vulnerabilities to UI format
+                const findings = vulns.map((v: any, index: number) => ({
+                    severity: (v.severity || 'medium').toLowerCase(),
+                    title: v.name || 'Security Issue',
+                    description: v.description || 'Potential vulnerability detected',
+                    line: v.location ? parseInt(v.location) : undefined
+                }));
+                setAuditResults(findings);
             }
         } catch (error) {
             console.error('Contract audit failed:', error);

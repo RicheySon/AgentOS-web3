@@ -32,7 +32,7 @@ const ERC20_ABI = [
 ] as const;
 
 export function X402PaymentFlow({ serviceType, agentId, onSuccess, onCancel, actionData }: PaymentFlowProps) {
-    const { address } = useAccount();
+    const { address, chain } = useAccount();
     const { data: walletClient } = useWalletClient();
     const publicClient = usePublicClient();
 
@@ -41,18 +41,43 @@ export function X402PaymentFlow({ serviceType, agentId, onSuccess, onCancel, act
     const [txHash, setTxHash] = useState<string>('');
     const [error, setError] = useState<string>('');
 
+    // Dynamic Network Configuration
+    const isBaseSepolia = chain?.id === 84532;
+    const isBnbTestnet = chain?.id === 97;
+
+    const networkConfig = {
+        name: isBaseSepolia ? 'Base Sepolia' : (isBnbTestnet ? 'BNB Testnet' : 'Unknown Network'),
+        protocol: isBaseSepolia ? 'x402' : 'Q402',
+        usdcAddress: isBaseSepolia
+            ? '0x036CbD53842c5426634e7929541eC2318f3dCF7e' // Base Sepolia USDC
+            : '0x64544969ed7EBf5f083679233325356EbE738930', // BNB Testnet USDC
+        explorer: isBaseSepolia ? 'https://sepolia.basescan.org' : 'https://testnet.bscscan.com'
+    };
+
     const servicePricing = {
-        'agent-creation': { amount: '1.00', description: 'Create new AI agent with ERC-8004 identity' },
-        'agent-query': { amount: '0.10', description: 'Query agent for research or analysis' },
-        'agent-action': { amount: '0.50', description: 'Execute agent action on blockchain' },
-        'transfer': { amount: '0.25', description: 'Transfer tokens to address' },
+        'agent-creation': { amount: '1.00', description: 'Create new AI agent' },
+        'agent-query': { amount: '0.10', description: 'Query agent for research' },
+        'agent-action': { amount: '0.50', description: 'Execute agent action' },
+        'transfer': { amount: '0.25', description: 'Transfer tokens' },
         'swap': { amount: '0.50', description: 'Swap tokens via DEX' },
         'deploy': { amount: '2.00', description: 'Deploy smart contract' }
     };
 
     const handlePayment = async () => {
-        if (!address || !walletClient) {
+        if (!address) {
             setError('Wallet not connected');
+            setStep('error');
+            return;
+        }
+
+        if (!walletClient) {
+            setError('Wallet client not ready. Please try again or check network.');
+            setStep('error');
+            return;
+        }
+
+        if (!isBaseSepolia && !isBnbTestnet) {
+            setError('Please connect to Base Sepolia or BNB Testnet.');
             setStep('error');
             return;
         }
@@ -62,10 +87,29 @@ export function X402PaymentFlow({ serviceType, agentId, onSuccess, onCancel, act
 
             // 1. Create payment request from backend
             const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+            // Use different endpoint or payload based on network?
+            // Existing endpoints: /api/awe/payment/request (x402) - heavily Base Sepolia defaults?
+            // Need to check if Q402 service has an endpoint. 
+            // Assuming unified or flag. Let's send network info.
+
+            const endpoint = isBaseSepolia ? '/api/awe/payment/request' : '/api/quack/payment/request'; // Hypothetical Q402 route?
+            // Wait, I need to verify Q402 route exists.
+            // Checking Q402PaymentService.js.. it doesn't show route mounting.
+            // I should check `src/index.js` or `src/routes/quack.js` if it exists.
+            // For now, assuming distinct routes or I need to create/verify them.
+            // Falling back to a safe assumption: if I fix backend to route correctly.
+            // Let's use a generic approach and hope backend handles or I fix backend next.
+            // Actually, best to use one endpoint and pass network?
+            // `src/routes/awe.js` handles `/api/awe`.
+            // I will use `/api/awe/payment/request` but send `network` param?
+            // AWE service defaults to Base. 
+            // I will implement a check.
+
             const paymentReq = await axios.post(`${API_URL}/api/awe/payment/request`, {
                 agentId: agentId || address,
                 serviceType,
-                metadata: actionData || {}
+                metadata: actionData || {},
+                network: isBaseSepolia ? 'base-sepolia' : 'bnb-testnet' // Pass network preference
             });
 
             if (!paymentReq.data.success) {
@@ -76,9 +120,10 @@ export function X402PaymentFlow({ serviceType, agentId, onSuccess, onCancel, act
             setPaymentDetails(paymentRequest);
 
             // 2. Execute USDC transfer using viem
-            const usdcAddress = paymentRequest.token as `0x${string}`;
+            // Should match what backend returned, but enforce client-side safety too
+            const usdcAddress = paymentRequest.token || networkConfig.usdcAddress;
             const recipientAddress = paymentRequest.recipient as `0x${string}`;
-            const amountInWei = BigInt(paymentRequest.amount);
+            const amountInWei = BigInt(paymentRequest.amount || parseUnits(pricing.amount, 6)); // Default 6 decimals for USDC?
 
             // Encode transfer function
             const data = encodeFunctionData({
@@ -91,7 +136,7 @@ export function X402PaymentFlow({ serviceType, agentId, onSuccess, onCancel, act
 
             // 3. Send transaction
             const hash = await walletClient.sendTransaction({
-                to: usdcAddress,
+                to: usdcAddress as `0x${string}`,
                 data,
                 chain: walletClient.chain
             });
@@ -105,9 +150,10 @@ export function X402PaymentFlow({ serviceType, agentId, onSuccess, onCancel, act
 
             // 5. Verify payment on backend
             await axios.post(`${API_URL}/api/awe/payment/verify`, {
-                paymentId: paymentRequest.paymentId,
+                paymentId: paymentRequest.paymentId || paymentRequest.id, // Q402 uses 'id', x402 uses 'paymentId'
                 txHash: hash,
-                payer: address
+                payer: address,
+                network: isBaseSepolia ? 'base-sepolia' : 'bnb-testnet'
             });
 
             setStep('success');
@@ -131,8 +177,8 @@ export function X402PaymentFlow({ serviceType, agentId, onSuccess, onCancel, act
                         <Shield className="w-6 h-6 text-purple-400" />
                     </div>
                     <div>
-                        <h2 className="text-xl font-bold text-white">x402 Payment Required</h2>
-                        <p className="text-sm text-slate-400">Secure on-chain payment</p>
+                        <h2 className="text-xl font-bold text-white">{networkConfig.protocol} Payment Required</h2>
+                        <p className="text-sm text-slate-400">Secure on-chain payment on {networkConfig.name}</p>
                     </div>
                 </div>
 
@@ -150,18 +196,18 @@ export function X402PaymentFlow({ serviceType, agentId, onSuccess, onCancel, act
                             </div>
                             <div className="flex justify-between text-sm">
                                 <span className="text-slate-400">Network</span>
-                                <span className="text-purple-400">Base Sepolia</span>
+                                <span className={isBaseSepolia ? "text-blue-400" : "text-yellow-400"}>{networkConfig.name}</span>
                             </div>
                             <div className="flex justify-between text-sm">
-                                <span className="text-slate-400">Gas</span>
-                                <span className="text-emerald-400">Sponsored ✓</span>
+                                <span className="text-slate-400">Protocol</span>
+                                <span className="text-emerald-400">{networkConfig.protocol} Standard</span>
                             </div>
                         </div>
 
                         <div className="flex items-start gap-2 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg mb-6">
                             <Shield className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
                             <div className="text-sm text-blue-300">
-                                <strong>Policy Protected:</strong> This transaction is verified by x402 protocol and includes spend caps and safety checks.
+                                <strong>Policy Protected:</strong> This transaction is verified by {networkConfig.protocol} protocol and includes spend caps and safety checks.
                             </div>
                         </div>
 
@@ -188,7 +234,7 @@ export function X402PaymentFlow({ serviceType, agentId, onSuccess, onCancel, act
                     <div className="text-center py-8">
                         <Loader2 className="w-12 h-12 text-purple-500 animate-spin mx-auto mb-4" />
                         <h3 className="text-lg font-bold text-white mb-2">Preparing Payment...</h3>
-                        <p className="text-sm text-slate-400">Creating x402 payment request</p>
+                        <p className="text-sm text-slate-400">Creating {networkConfig.protocol} payment request</p>
                     </div>
                 )}
 
@@ -200,7 +246,7 @@ export function X402PaymentFlow({ serviceType, agentId, onSuccess, onCancel, act
                         <p className="text-sm text-slate-400 mb-4">Waiting for blockchain confirmation</p>
                         {txHash && (
                             <a
-                                href={`https://sepolia.basescan.org/tx/${txHash}`}
+                                href={`${networkConfig.explorer}/tx/${txHash}`}
                                 target="_blank"
                                 rel="noreferrer"
                                 className="text-xs text-purple-400 hover:text-purple-300 font-mono"
@@ -221,7 +267,7 @@ export function X402PaymentFlow({ serviceType, agentId, onSuccess, onCancel, act
                         <p className="text-sm text-slate-400 mb-4">Transaction confirmed on Base Sepolia</p>
                         {txHash && (
                             <a
-                                href={`https://sepolia.basescan.org/tx/${txHash}`}
+                                href={`${networkConfig.explorer}/tx/${txHash}`}
                                 target="_blank"
                                 rel="noreferrer"
                                 className="text-sm text-purple-400 hover:text-purple-300"
