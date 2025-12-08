@@ -1,6 +1,9 @@
 const { BufferedMemory, MultiMemory, Message, Storage, membaseChain, membaseId } = require('membase');
 const logger = require('../../utils/logger');
 
+const fs = require('fs');
+const path = require('path');
+
 class MembaseService {
     constructor() {
         // Membase SDK configuration
@@ -8,13 +11,22 @@ class MembaseService {
         this.account = process.env.MEMBASE_ACCOUNT;
         this.hubUrl = process.env.MEMBASE_HUB || 'https://testnet.hub.membase.io';
 
+        // Data directory for persistence
+        this.dataDir = path.join(process.cwd(), 'data');
+        this.dataFile = path.join(this.dataDir, 'memory_store.json');
+
+        // Ensure data directory exists
+        if (!fs.existsSync(this.dataDir)) {
+            fs.mkdirSync(this.dataDir, { recursive: true });
+        }
+
         // Initialize storage hub
         try {
             this.storage = new Storage(this.hubUrl);
             this.isConnected = true;
             logger.info('Membase storage hub connected', { hub: this.hubUrl });
         } catch (error) {
-            logger.warn('Membase storage hub connection failed, using fallback', { error: error.message });
+            logger.warn('Membase storage hub connection failed, using local persistent storage', { error: error.message });
             this.storage = null;
             this.isConnected = false;
         }
@@ -22,13 +34,8 @@ class MembaseService {
         // Memory instances cache
         this.memories = new Map();
 
-        // In-memory fallback storage
-        this.fallbackStorage = {
-            conversations: new Map(),
-            preferences: new Map(),
-            transactions: new Map(),
-            contracts: new Map()
-        };
+        // Load persistent data
+        this.fallbackStorage = this.loadFromDisk();
 
         this.usesFallback = !this.isConnected;
         this.operationQueue = [];
@@ -41,6 +48,52 @@ class MembaseService {
             });
         } else {
             logger.warn('Membase chain not initialized - blockchain features disabled');
+        }
+    }
+
+    /**
+     * Load data from disk
+     */
+    loadFromDisk() {
+        try {
+            if (fs.existsSync(this.dataFile)) {
+                const data = fs.readFileSync(this.dataFile, 'utf8');
+                const parsed = JSON.parse(data);
+
+                // Convert arrays back to Maps
+                return {
+                    conversations: new Map(parsed.conversations || []),
+                    preferences: new Map(parsed.preferences || []),
+                    transactions: new Map(parsed.transactions || []),
+                    contracts: new Map(parsed.contracts || [])
+                };
+            }
+        } catch (error) {
+            logger.error('Failed to load memory store:', error);
+        }
+
+        return {
+            conversations: new Map(),
+            preferences: new Map(),
+            transactions: new Map(),
+            contracts: new Map()
+        };
+    }
+
+    /**
+     * Save data to disk
+     */
+    saveToDisk() {
+        try {
+            const data = {
+                conversations: Array.from(this.fallbackStorage.conversations.entries()),
+                preferences: Array.from(this.fallbackStorage.preferences.entries()),
+                transactions: Array.from(this.fallbackStorage.transactions.entries()),
+                contracts: Array.from(this.fallbackStorage.contracts.entries())
+            };
+            fs.writeFileSync(this.dataFile, JSON.stringify(data, null, 2));
+        } catch (error) {
+            logger.error('Failed to save memory store:', error);
         }
     }
 
@@ -112,7 +165,8 @@ class MembaseService {
             }
 
             // Fallback to in-memory storage
-            return this.fallbackStore('conversations', agentId, {
+            const uniqueKey = `${agentId}_${timestamp}_${Date.now()}`;
+            return this.fallbackStore('conversations', uniqueKey, {
                 agent_id: agentId,
                 user_message: userMessage,
                 ai_response: aiResponse,
@@ -122,7 +176,8 @@ class MembaseService {
 
         } catch (error) {
             logger.error('Store conversation error:', error.message);
-            return this.fallbackStore('conversations', agentId, {
+            const uniqueKey = `${agentId}_${timestamp}_${Date.now()}`;
+            return this.fallbackStore('conversations', uniqueKey, {
                 agent_id: agentId,
                 user_message: userMessage,
                 ai_response: aiResponse,
@@ -479,8 +534,38 @@ class MembaseService {
                 preferences: this.fallbackStorage.preferences.size,
                 transactions: this.fallbackStorage.transactions.size,
                 contracts: this.fallbackStorage.contracts.size
-            }
+            },
+            // Add expected fields for frontend
+            conversationCount: this.memories.size + this.fallbackStorage.conversations.size, // Approximation
+            messageCount: 0, // Will calculate below
+            storageSize: '0 KB'
         };
+
+        // Calculate message count from memories
+        let totalMessages = 0;
+        for (const memory of this.memories.values()) {
+            if (memory.messages) {
+                totalMessages += memory.messages.length;
+            } else if (memory.get) {
+                // specific to BufferedMemory implementation
+                try {
+                    totalMessages += memory.get(1000).length;
+                } catch (e) { }
+            }
+        }
+
+        // Add fallback messages (rough estimate logic as fallback stores key-value)
+        // Adjust based on actual fallback structure if needed. 
+        // Based on fallbackStore code: this.fallbackStorage.conversations.set(key, data);
+        // data usually contains messages or is a message? 
+        // fallbackStore('conversations', agentId, {...}) stores the last message context usually or the whole conv?
+        // Looking at storeConversation: fallbackStore stores a single object with user_message and ai_response.
+        // So each entry in fallbackStorage.conversations is effectively 2 messages (user + AI).
+        totalMessages += (this.fallbackStorage.conversations.size * 2);
+
+        stats.messageCount = totalMessages;
+        stats.storageSize = `${(JSON.stringify(stats).length / 1024).toFixed(2)} KB`; // Rough estimate
+
 
         if (this.isConnected && this.storage) {
             const status = this.storage.getStatus();
@@ -493,46 +578,14 @@ class MembaseService {
         return stats;
     }
 
-    /**
-     * Wait for upload queue to complete
-     * @returns {Promise<void>}
-     */
-    async waitForUploadQueue() {
-        if (this.isConnected && this.storage) {
-            await this.storage.waitForUploadQueue();
-            logger.info('Upload queue completed');
+/**
+ * Wait for upload queue to complete
+ * @returns {Promise<void>}
+            results.push(value);
         }
     }
-
-    /**
-     * Close storage connections
-     */
-    close() {
-        if (this.storage) {
-            this.storage.close();
-            logger.info('Membase storage closed');
-        }
-    }
-
-    /**
-     * Fallback storage operations
-     */
-    fallbackStore(collection, key, data) {
-        this.fallbackStorage[collection].set(key, data);
-        this.usesFallback = true;
-        logger.debug('Data stored in fallback', { collection, key });
-        return { success: true, stored: true, fallback: true };
-    }
-
-    fallbackQuery(collection, agentId, limit) {
-        const results = [];
-        for (const [key, value] of this.fallbackStorage[collection].entries()) {
-            if (!agentId || key.includes(agentId) || value.agent_id === agentId) {
-                results.push(value);
-            }
-        }
-        return results.slice(-limit);
-    }
+    return results.slice(-limit);
+}
 }
 
 module.exports = new MembaseService();

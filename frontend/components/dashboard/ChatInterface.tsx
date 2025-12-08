@@ -5,6 +5,7 @@ import { Send, Bot, User, Sparkles, Loader2, RefreshCw } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import axios from 'axios';
 import { useAccount } from 'wagmi';
+import { useSearchParams } from 'next/navigation';
 
 interface Message {
     role: 'user' | 'assistant';
@@ -28,6 +29,9 @@ export function ChatInterface() {
         scrollToBottom();
     }, [messages]);
 
+    const searchParams = useSearchParams();
+    const agentIdParam = searchParams.get('agentId');
+
     // Load conversation history when wallet connects
     useEffect(() => {
         const loadHistory = async () => {
@@ -43,7 +47,8 @@ export function ChatInterface() {
 
             try {
                 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
-                const agentId = `user-${address}`;
+                // Use specific agent ID if provided, otherwise default to user's personal agent
+                const agentId = agentIdParam || `user-${address}`;
 
                 const response = await axios.get(`${API_URL}/api/memory/conversation/${agentId}?limit=50`);
 
@@ -109,7 +114,7 @@ export function ChatInterface() {
             setMessages(prev => [...prev, aiMessage]);
 
             // Store in memory with wallet address as agentId
-            const agentId = `user-${address}`;
+            const agentId = agentIdParam || `user-${address}`;
             axios.post(`${API_URL}/api/memory/conversation`, {
                 agentId,
                 userMessage: userMessage.content,
